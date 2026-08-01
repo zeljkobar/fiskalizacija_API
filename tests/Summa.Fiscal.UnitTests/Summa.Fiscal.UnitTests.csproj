@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Summa.Fiscal.Application\Summa.Fiscal.Application.csproj" />
+    <ProjectReference Include="..\..\src\Summa.Fiscal.Domain\Summa.Fiscal.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Summa.Fiscal.Api\Summa.Fiscal.Api.csproj" />
+    <ProjectReference Include="..\..\src\Summa.Fiscal.Infrastructure\Summa.Fiscal.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Summa.Fiscal.Persistence\Summa.Fiscal.Persistence.csproj" />
+  </ItemGroup>
+
+</Project>

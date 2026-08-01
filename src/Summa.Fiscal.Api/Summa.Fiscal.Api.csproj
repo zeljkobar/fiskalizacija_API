@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Summa.Fiscal.Application\Summa.Fiscal.Application.csproj" />
+    <ProjectReference Include="..\Summa.Fiscal.Infrastructure\Summa.Fiscal.Infrastructure.csproj" />
+    <ProjectReference Include="..\Summa.Fiscal.Persistence\Summa.Fiscal.Persistence.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>927e75f4-38f7-493d-bcbc-0a3c2645d963</UserSecretsId>
+  </PropertyGroup>
+
+</Project>

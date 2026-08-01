@@ -1,0 +1,58 @@
+@Summa.Fiscal.Api_HostAddress = http://localhost:5127
+
+GET {{Summa.Fiscal.Api_HostAddress}}/health
+Accept: application/json
+
+###
+
+GET {{Summa.Fiscal.Api_HostAddress}}/api/v1/fiscal/configuration/readiness
+Accept: application/json
+X-Correlation-Id: 8e9fb167-98a7-454f-8fe6-d9ef49b3c571
+
+###
+
+POST {{Summa.Fiscal.Api_HostAddress}}/api/v1/fiscal/test/dry-run
+Content-Type: application/json
+X-Correlation-Id: d3d842ad-5723-47b1-8f85-ed9a080d1230
+
+{
+  "invoiceOrdinalNumber": 1,
+  "issueDateTime": "2026-07-30T20:00:00+02:00",
+  "itemName": "Testna usluga",
+  "netAmount": 1.00,
+  "vatRate": 21.00
+}
+
+###
+
+POST {{Summa.Fiscal.Api_HostAddress}}/api/v1/fiscal/invoices
+Content-Type: application/json
+X-Correlation-Id: 2ab46d08-d3c4-4795-ab81-e640f8d2ecae
+Idempotency-Key: demo-invoice-1
+
+{
+  "companyId": "11111111-1111-1111-1111-111111111111",
+  "businessUnitId": "22222222-2222-2222-2222-222222222222",
+  "deviceId": "33333333-3333-3333-3333-333333333333",
+  "operatorId": "44444444-4444-4444-4444-444444444444",
+  "invoiceType": "Normal",
+  "invoiceNumber": "1/PP1/2026",
+  "issueDateTime": "2026-07-30T20:00:00+02:00",
+  "currency": "EUR",
+  "items": [
+    {
+      "name": "Usluga knjigovodstva",
+      "quantity": 1,
+      "unitPrice": 121.00,
+      "vatRate": 21.00
+    }
+  ],
+  "payments": [
+    {
+      "paymentType": "BankAccount",
+      "amount": 121.00
+    }
+  ]
+}
+
+###
