@@ -26,6 +26,9 @@ internal sealed class CompanyConfiguration : FiscalRecordConfiguration<CompanyRe
         b.Property(x => x.Tin).HasMaxLength(13).IsRequired();
         b.Property(x => x.LegalName).HasMaxLength(300).IsRequired();
         b.Property(x => x.ShortName).HasMaxLength(150);
+        b.Property(x => x.Address).HasMaxLength(300);
+        b.Property(x => x.Town).HasMaxLength(100);
+        b.Property(x => x.Country).HasMaxLength(3).HasDefaultValue("MNE").IsRequired();
         b.HasIndex(x => x.Tin).IsUnique();
     }
 }
@@ -123,8 +126,43 @@ internal sealed class FiscalCertificateConfiguration : FiscalRecordConfiguration
     {
         b.ToTable("fiscal_certificates");
         b.Property(x => x.StorageKey).HasMaxLength(500).IsRequired();
+        b.Property(x => x.FileName).HasMaxLength(255).IsRequired();
         b.Property(x => x.Thumbprint).HasMaxLength(100).IsRequired();
+        b.Property(x => x.SerialNumber).HasMaxLength(200).IsRequired();
+        b.Property(x => x.Subject).HasMaxLength(1000).IsRequired();
+        b.Property(x => x.Issuer).HasMaxLength(1000).IsRequired();
         b.HasIndex(x => new { x.CompanyId, x.Thumbprint }).IsUnique();
+        b.HasIndex(x => x.CompanyId).IsUnique().HasFilter("\"IsActive\" = TRUE");
+        b.HasOne(x => x.Company).WithMany(x => x.Certificates)
+            .HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class FiscalAuditConfiguration : FiscalRecordConfiguration<FiscalAuditRecord>
+{
+    protected override void ConfigureRecord(EntityTypeBuilder<FiscalAuditRecord> b)
+    {
+        b.ToTable("fiscal_audit_logs");
+        b.Property(x => x.Action).HasMaxLength(100).IsRequired();
+        b.Property(x => x.CorrelationId).HasMaxLength(200).IsRequired();
+        b.Property(x => x.Actor).HasMaxLength(200).IsRequired();
+        b.Property(x => x.DataJson).HasColumnType("jsonb").IsRequired();
+        b.HasIndex(x => x.CompanyId);
+        b.HasIndex(x => x.CorrelationId);
+        b.HasOne(x => x.Company).WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class FiscalCertificateAlertConfiguration : FiscalRecordConfiguration<FiscalCertificateAlertRecord>
+{
+    protected override void ConfigureRecord(EntityTypeBuilder<FiscalCertificateAlertRecord> b)
+    {
+        b.ToTable("fiscal_certificate_expiry_alerts");
+        b.Property(x => x.AcknowledgedBy).HasMaxLength(200);
+        b.HasIndex(x => new { x.CertificateId, x.ThresholdDays }).IsUnique();
+        b.HasIndex(x => new { x.CompanyId, x.IsAcknowledged, x.CreatedAt });
+        b.HasOne(x => x.Certificate).WithMany(x => x.ExpiryAlerts)
+            .HasForeignKey(x => x.CertificateId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.Company).WithMany()
             .HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }

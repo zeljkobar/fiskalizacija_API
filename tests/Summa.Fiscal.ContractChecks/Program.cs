@@ -1,5 +1,7 @@
 using Summa.Fiscal.Infrastructure.Certificates;
 using Summa.Fiscal.Infrastructure.Fiscalization.V5;
+using Microsoft.Extensions.Options;
+using Summa.Fiscal.Application.Certificates;
 
 var schemaPath = FindOfficialSchema();
 var builder = new RegisterInvoiceXmlBuilderV5();
@@ -7,6 +9,8 @@ var validator = new FiscalXmlSchemaValidatorV5(schemaPath);
 VerifySummaTestConfiguration();
 VerifySoapResponseParsing();
 VerifyQrCodeGeneration();
+await VerifyEncryptedCertificateVaultAsync();
+await VerifyCertificateExpiryAlertsAsync();
 var structuralDocument = builder.BuildUnsigned(
     CreateMinimalValidRequest(new string('A', 32), new string('B', 512)));
 var result = validator.Validate(structuralDocument);
@@ -425,6 +429,50 @@ static void WriteErrors(FiscalXmlValidationResultV5 validationResult)
         Console.Error.WriteLine(
             $"{error.Severity}: {error.Message} ({error.LineNumber},{error.LinePosition})");
     }
+}
+
+static async Task VerifyEncryptedCertificateVaultAsync()
+{
+    var root = Path.Combine(Path.GetTempPath(), "summa-cert-vault-" + Guid.NewGuid().ToString("N"));
+    var key = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+    var vault = new EncryptedFileCertificateVault(Options.Create(new FiscalCertificateVaultOptions
+    {
+        RootPath = root,
+        MasterKeyBase64 = key
+    }));
+    var companyId = Guid.NewGuid();
+    var pfxBytes = "test-pfx-material"u8.ToArray();
+    const string password = "test-password-that-must-not-be-plain";
+    try
+    {
+        var storageKey = await vault.StoreAsync(companyId, Guid.NewGuid(), pfxBytes, password, CancellationToken.None);
+        var encryptedBytes = await File.ReadAllBytesAsync(Path.Combine(root, storageKey.Replace('/', Path.DirectorySeparatorChar)));
+        if (System.Text.Encoding.UTF8.GetString(encryptedBytes).Contains(password, StringComparison.Ordinal))
+            throw new InvalidOperationException("Lozinka sertifikata je pronađena kao običan tekst u skladištu.");
+        var loaded = await vault.LoadAsync(storageKey, CancellationToken.None);
+        if (!loaded.PfxBytes.SequenceEqual(pfxBytes) || loaded.Password != password)
+            throw new InvalidOperationException("Šifrovano skladište nije vratilo originalni sertifikat.");
+        await vault.DeleteAsync(storageKey, CancellationToken.None);
+    }
+    finally
+    {
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
+}
+
+static async Task VerifyCertificateExpiryAlertsAsync()
+{
+    var now = new DateTimeOffset(2026, 8, 2, 0, 0, 0, TimeSpan.Zero);
+    var repository = new FakeCertificateExpiryRepository([
+        new(Guid.NewGuid(), Guid.NewGuid(), "11111111", "Firma 7 dana", "a.pfx", "AA", now.AddDays(6), 6, false),
+        new(Guid.NewGuid(), Guid.NewGuid(), "22222222", "Istekla firma", "b.pfx", "BB", now.AddHours(-1), 0, true)
+    ]);
+    var service = new CertificateExpiryService(repository, new FixedTimeProvider(now));
+    var first = await service.ScanAsync(CancellationToken.None);
+    var second = await service.ScanAsync(CancellationToken.None);
+    if (first.AlertsCreated != 2 || second.AlertsCreated != 0 ||
+        !repository.CreatedThresholds.Order().SequenceEqual(new[] { 0, 7 }))
+        throw new InvalidOperationException("Pragovi ili idempotentnost certificate expiry alertova nijesu ispravni.");
 }
 
 static string FindOfficialSchema()

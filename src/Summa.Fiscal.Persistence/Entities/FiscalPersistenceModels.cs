@@ -12,12 +12,16 @@ public sealed class CompanyRecord : FiscalRecord
     public string Tin { get; set; } = string.Empty;
     public string LegalName { get; set; } = string.Empty;
     public string? ShortName { get; set; }
+    public string? Address { get; set; }
+    public string? Town { get; set; }
+    public string Country { get; set; } = "MNE";
     public bool IsVatPayer { get; set; }
     public bool IsActive { get; set; } = true;
     public FiscalProfileRecord? FiscalProfile { get; set; }
     public ICollection<BusinessUnitRecord> BusinessUnits { get; set; } = [];
     public ICollection<FiscalOperatorRecord> Operators { get; set; } = [];
     public ICollection<ApiClientCompanyAccessRecord> ApiClientAccesses { get; set; } = [];
+    public ICollection<FiscalCertificateRecord> Certificates { get; set; } = [];
 }
 
 public sealed class ApiClientRecord : FiscalRecord
@@ -88,10 +92,40 @@ public sealed class FiscalCertificateRecord : FiscalRecord
     public Guid CompanyId { get; set; }
     public CompanyRecord Company { get; set; } = null!;
     public string StorageKey { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
     public string Thumbprint { get; set; } = string.Empty;
+    public string SerialNumber { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string Issuer { get; set; } = string.Empty;
     public DateTimeOffset ValidFrom { get; set; }
     public DateTimeOffset ValidTo { get; set; }
-    public bool IsActive { get; set; } = true;
+    public bool IsActive { get; set; }
+    public DateTimeOffset? ActivatedAt { get; set; }
+    public DateTimeOffset? DeactivatedAt { get; set; }
+    public ICollection<FiscalCertificateAlertRecord> ExpiryAlerts { get; set; } = [];
+}
+
+public sealed class FiscalCertificateAlertRecord : FiscalRecord
+{
+    public Guid CertificateId { get; set; }
+    public FiscalCertificateRecord Certificate { get; set; } = null!;
+    public Guid CompanyId { get; set; }
+    public CompanyRecord Company { get; set; } = null!;
+    public int ThresholdDays { get; set; }
+    public DateTimeOffset CertificateValidTo { get; set; }
+    public bool IsAcknowledged { get; set; }
+    public DateTimeOffset? AcknowledgedAt { get; set; }
+    public string? AcknowledgedBy { get; set; }
+}
+
+public sealed class FiscalAuditRecord : FiscalRecord
+{
+    public Guid? CompanyId { get; set; }
+    public CompanyRecord? Company { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
+    public string Actor { get; set; } = string.Empty;
+    public string DataJson { get; set; } = "{}";
 }
 
 public sealed class FiscalInvoiceRecord : FiscalRecord

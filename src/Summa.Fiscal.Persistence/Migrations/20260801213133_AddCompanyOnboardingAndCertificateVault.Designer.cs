@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Summa.Fiscal.Persistence;
@@ -11,9 +12,11 @@ using Summa.Fiscal.Persistence;
 namespace Summa.Fiscal.Persistence.Migrations
 {
     [DbContext(typeof(SummaFiscalDbContext))]
-    partial class SummaFiscalDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260801213133_AddCompanyOnboardingAndCertificateVault")]
+    partial class AddCompanyOnboardingAndCertificateVault
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -216,17 +219,6 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Address")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<string>("Country")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(3)
-                        .HasColumnType("character varying(3)")
-                        .HasDefaultValue("MNE");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -249,10 +241,6 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(13)
                         .HasColumnType("character varying(13)");
-
-                    b.Property<string>("Town")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -306,50 +294,6 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.HasIndex("CorrelationId");
 
                     b.ToTable("fiscal_audit_logs", "fiscal");
-                });
-
-            modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.FiscalCertificateAlertRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("AcknowledgedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("AcknowledgedBy")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid>("CertificateId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CertificateValidTo")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsAcknowledged")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("ThresholdDays")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CertificateId", "ThresholdDays")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "IsAcknowledged", "CreatedAt");
-
-                    b.ToTable("fiscal_certificate_expiry_alerts", "fiscal");
                 });
 
             modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.FiscalCertificateRecord", b =>
@@ -938,25 +882,6 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.Navigation("Company");
                 });
 
-            modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.FiscalCertificateAlertRecord", b =>
-                {
-                    b.HasOne("Summa.Fiscal.Persistence.Entities.FiscalCertificateRecord", "Certificate")
-                        .WithMany("ExpiryAlerts")
-                        .HasForeignKey("CertificateId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Summa.Fiscal.Persistence.Entities.CompanyRecord", "Company")
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Certificate");
-
-                    b.Navigation("Company");
-                });
-
             modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.FiscalCertificateRecord", b =>
                 {
                     b.HasOne("Summa.Fiscal.Persistence.Entities.CompanyRecord", "Company")
@@ -1090,11 +1015,6 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.Navigation("FiscalProfile");
 
                     b.Navigation("Operators");
-                });
-
-            modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.FiscalCertificateRecord", b =>
-                {
-                    b.Navigation("ExpiryAlerts");
                 });
 
             modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.FiscalInvoiceRecord", b =>

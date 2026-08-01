@@ -1,5 +1,6 @@
 using Summa.Fiscal.Api.Contracts;
 using Summa.Fiscal.Application.Invoices;
+using Summa.Fiscal.Application.Onboarding;
 
 namespace Summa.Fiscal.Api.Middleware;
 
@@ -16,6 +17,15 @@ public sealed class ApiExceptionMiddleware(
         catch (FiscalValidationException exception)
         {
             await WriteValidationErrorAsync(context, exception);
+        }
+        catch (FiscalOnboardingException exception)
+        {
+            var correlationId = GetCorrelationId(context);
+            var statusCode = exception.Code.EndsWith("NOT_FOUND", StringComparison.Ordinal)
+                ? StatusCodes.Status404NotFound
+                : StatusCodes.Status400BadRequest;
+            await WriteAsync(context, statusCode, ApiResponse<object>.Fail(
+                new(exception.Code, exception.Message, []), correlationId));
         }
         catch (Exception exception)
         {

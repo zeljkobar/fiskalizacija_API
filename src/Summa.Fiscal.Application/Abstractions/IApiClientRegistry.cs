@@ -6,9 +6,21 @@ public static class FiscalApiPermissions
     public const string InvoicesRead = "invoices:read";
     public const string InvoicesFiscalize = "invoices:fiscalize";
     public const string ClientsAdmin = "clients:admin";
+    public const string PlatformAdmin = "platform:admin";
+    public const string CompaniesRead = "companies:read";
+    public const string CompaniesWrite = "companies:write";
+    public const string ConfigurationRead = "configuration:read";
+    public const string ConfigurationWrite = "configuration:write";
+    public const string CertificatesRead = "certificates:read";
+    public const string CertificatesManage = "certificates:manage";
+    public const string AuditRead = "audit:read";
+    public const string AlertsRead = "alerts:read";
+    public const string AlertsManage = "alerts:manage";
 
     public static readonly IReadOnlySet<string> Allowed = new HashSet<string>(
-        [InvoicesCreate, InvoicesRead, InvoicesFiscalize, ClientsAdmin],
+        [InvoicesCreate, InvoicesRead, InvoicesFiscalize, ClientsAdmin, PlatformAdmin,
+         CompaniesRead, CompaniesWrite, ConfigurationRead, ConfigurationWrite,
+         CertificatesRead, CertificatesManage, AuditRead, AlertsRead, AlertsManage],
         StringComparer.Ordinal);
 }
 
@@ -45,9 +57,11 @@ public interface IApiClientRegistry
         IReadOnlyCollection<string> permissions,
         IReadOnlyCollection<Guid> companyIds,
         DateTimeOffset? expiresAt,
+        string actor,
+        string correlationId,
         CancellationToken cancellationToken);
 
-    Task<CreatedApiClient?> RotateKeyAsync(Guid id, CancellationToken cancellationToken);
-    Task<bool> DeactivateAsync(Guid id, CancellationToken cancellationToken);
+    Task<CreatedApiClient?> RotateKeyAsync(Guid id, string actor, string correlationId, CancellationToken cancellationToken);
+    Task<bool> DeactivateAsync(Guid id, string actor, string correlationId, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<ApiClientSummary>> ListAsync(CancellationToken cancellationToken);
 }

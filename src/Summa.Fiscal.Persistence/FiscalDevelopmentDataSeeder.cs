@@ -28,6 +28,7 @@ public static class FiscalDevelopmentDataSeeder
             Tin = "02825767",
             LegalName = "DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA TRGOVINU I USLUGE \"SUMMA SUMMARUM\" - BAR",
             ShortName = "Summa Summarum",
+            Country = "MNE",
             IsActive = true,
             CreatedAt = now,
             UpdatedAt = now,

@@ -1,8 +1,5 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
 using Summa.Fiscal.Api.Contracts;
 using Summa.Fiscal.Api.Middleware;
 using Summa.Fiscal.Api.Security;
@@ -15,14 +12,14 @@ namespace Summa.Fiscal.Api.Controllers;
 [Route("api/v1/admin/api-clients")]
 public sealed class ApiClientsController(
     IApiClientRegistry registry,
-    IOptions<ApiAccessOptions> accessOptions) : ControllerBase
+    IBootstrapAdminAuthorizer adminAuthorizer) : ControllerBase
 {
-    private const string BootstrapHeader = "X-Fiscal-Bootstrap-Key";
 
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
-        if (!IsBootstrapAuthorized()) return UnauthorizedResponse();
+        var access = Access();
+        if (!access.IsAllowed) return DeniedResponse(access);
         var result = await registry.ListAsync(cancellationToken);
         return Ok(ApiResponse<IReadOnlyCollection<ApiClientSummary>>.Ok(result, CorrelationId()));
     }
@@ -32,7 +29,8 @@ public sealed class ApiClientsController(
         [FromBody] CreateApiClientRequest request,
         CancellationToken cancellationToken)
     {
-        if (!IsBootstrapAuthorized()) return UnauthorizedResponse();
+        var access = Access();
+        if (!access.IsAllowed) return DeniedResponse(access);
         try
         {
             var result = await registry.CreateAsync(
@@ -40,6 +38,8 @@ public sealed class ApiClientsController(
                 request.Permissions ?? [],
                 request.CompanyIds ?? [],
                 request.ExpiresAt,
+                access.Actor,
+                CorrelationId(),
                 cancellationToken);
             return CreatedAtAction(
                 nameof(List),
@@ -60,8 +60,9 @@ public sealed class ApiClientsController(
     [HttpPost("{id:guid}/rotate-key")]
     public async Task<IActionResult> RotateKey(Guid id, CancellationToken cancellationToken)
     {
-        if (!IsBootstrapAuthorized()) return UnauthorizedResponse();
-        var result = await registry.RotateKeyAsync(id, cancellationToken);
+        var access = Access();
+        if (!access.IsAllowed) return DeniedResponse(access);
+        var result = await registry.RotateKeyAsync(id, access.Actor, CorrelationId(), cancellationToken);
         return result is null
             ? NotFound(ApiResponse<object>.Fail(
                 new("API_CLIENT_NOT_FOUND", "Aplikacija nije pronađena.", []), CorrelationId()))
@@ -71,27 +72,23 @@ public sealed class ApiClientsController(
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Deactivate(Guid id, CancellationToken cancellationToken)
     {
-        if (!IsBootstrapAuthorized()) return UnauthorizedResponse();
-        var deactivated = await registry.DeactivateAsync(id, cancellationToken);
+        var access = Access();
+        if (!access.IsAllowed) return DeniedResponse(access);
+        var deactivated = await registry.DeactivateAsync(id, access.Actor, CorrelationId(), cancellationToken);
         return deactivated
             ? NoContent()
             : NotFound(ApiResponse<object>.Fail(
                 new("API_CLIENT_NOT_FOUND", "Aplikacija nije pronađena.", []), CorrelationId()));
     }
 
-    private bool IsBootstrapAuthorized()
-    {
-        var expected = accessOptions.Value.BootstrapAdminKey;
-        var supplied = Request.Headers[BootstrapHeader].FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(expected) || string.IsNullOrWhiteSpace(supplied)) return false;
-        return CryptographicOperations.FixedTimeEquals(
-            SHA256.HashData(Encoding.UTF8.GetBytes(expected)),
-            SHA256.HashData(Encoding.UTF8.GetBytes(supplied)));
-    }
+    private AdminAccessDecision Access() =>
+        adminAuthorizer.Authorize(HttpContext, FiscalApiPermissions.ClientsAdmin);
 
-    private IActionResult UnauthorizedResponse() => Unauthorized(ApiResponse<object>.Fail(
-        new("ADMIN_AUTHENTICATION_REQUIRED", "Administratorski pristup nije odobren.", []),
-        CorrelationId()));
+    private IActionResult DeniedResponse(AdminAccessDecision access) => access.IsAuthenticated
+        ? StatusCode(StatusCodes.Status403Forbidden, ApiResponse<object>.Fail(
+            new("ADMIN_PERMISSION_DENIED", "Klijent nema potrebnu administratorsku dozvolu.", []), CorrelationId()))
+        : Unauthorized(ApiResponse<object>.Fail(
+            new("ADMIN_AUTHENTICATION_REQUIRED", "Administratorski pristup nije odobren.", []), CorrelationId()));
 
     private string CorrelationId() =>
         HttpContext.Items[CorrelationIdMiddleware.ItemName]?.ToString()

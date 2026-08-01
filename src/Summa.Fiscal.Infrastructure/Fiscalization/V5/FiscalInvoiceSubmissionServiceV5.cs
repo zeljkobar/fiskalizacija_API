@@ -1,9 +1,7 @@
 using System.Security.Cryptography.X509Certificates;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Summa.Fiscal.Application.Abstractions;
+using Summa.Fiscal.Application.Onboarding;
 using Summa.Fiscal.Domain.Invoices;
-using Summa.Fiscal.Infrastructure.Certificates;
 
 namespace Summa.Fiscal.Infrastructure.Fiscalization.V5;
 
@@ -30,14 +28,14 @@ public interface IFiscalInvoiceSubmissionServiceV5
 
 public sealed class FiscalInvoiceSubmissionServiceV5(
     IFiscalInvoiceRepository repository,
-    IOptions<PuFiscalizationOptionsV5> fiscalOptions,
-    IOptions<FiscalDevelopmentCertificateOptions> certificateOptions,
-    IPfxCertificateLoader certificateLoader,
+    IFiscalOnboardingService onboardingService,
     IIicGeneratorV5 iicGenerator,
     IRegisterInvoiceXmlBuilderV5 xmlBuilder,
     IFiscalXmlSignerV5 xmlSigner,
     IFiscalQrCodeGeneratorV5 qrCodeGenerator,
-    IServiceProvider serviceProvider) : IFiscalInvoiceSubmissionServiceV5
+    ISoapEnvelopeV5 soapEnvelope,
+    IRegisterInvoiceResponseParserV5 responseParser,
+    IFiscalExchangeStoreV5 exchangeStore) : IFiscalInvoiceSubmissionServiceV5
 {
     public async Task<FiscalInvoiceSubmissionResultV5?> SubmitAsync(
         Guid invoiceId,
@@ -50,7 +48,15 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             return null;
         }
 
-        var configuration = fiscalOptions.Value;
+        var fiscalContext = await onboardingService.ResolveContextAsync(
+            invoice.CompanyId,
+            invoice.BusinessUnitId,
+            invoice.DeviceId,
+            invoice.OperatorId,
+            "fiscalization-engine",
+            correlationId,
+            cancellationToken);
+        var configuration = BuildConfiguration(fiscalContext);
         configuration.EnsureReadyForInvoice();
         var ordinalNumber = ReadOrdinalNumber(invoice.InvoiceNumber);
         var issueDateTime = ToMontenegroTime(invoice.IssueDateTime);
@@ -86,17 +92,10 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             throw new InvalidOperationException("PU endpoint nije ispravan.");
         }
 
-        var certificateConfiguration = certificateOptions.Value;
-        using var loadedCertificate = certificateLoader.Load(
-            certificateConfiguration.Path,
-            certificateConfiguration.Password,
-            new(
-                RequireCurrentlyValid: true,
-                ExpectedIssuerTin: configuration.IssuerTin,
-                KeyStorageFlags:
-                    X509KeyStorageFlags.MachineKeySet |
-                    X509KeyStorageFlags.PersistKeySet |
-                    X509KeyStorageFlags.Exportable));
+        using var certificate = X509CertificateLoader.LoadPkcs12(
+            fiscalContext.PfxBytes,
+            fiscalContext.Password,
+            X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable);
 
         var officialInvoiceNumber =
             $"{configuration.BusinessUnitCode}/{ordinalNumber}/{issueDateTime.Year}/{configuration.TcrCode}";
@@ -109,7 +108,7 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
                 configuration.TcrCode,
                 configuration.SoftwareCode,
                 invoice.TotalGrossAmount),
-            loadedCertificate.Certificate);
+            certificate);
 
         var request = BuildRequest(
             invoice,
@@ -120,7 +119,7 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             iic);
         var signed = xmlSigner.SignRequest(
             xmlBuilder.BuildUnsigned(request),
-            loadedCertificate.Certificate);
+            certificate);
         if (!signed.SignatureVerified)
         {
             throw new InvalidOperationException("Digitalni potpis PU zahtjeva nije validan.");
@@ -145,7 +144,9 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
 
         try
         {
-            var puClient = serviceProvider.GetRequiredService<IPuFiscalSoapClientV5>();
+            using var handler = new PuClientCertificateHandlerV5(certificate);
+            using var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+            var puClient = new PuFiscalSoapClientV5(httpClient, soapEnvelope, responseParser, exchangeStore);
             var transport = await puClient.RegisterInvoiceAsync(
                 endpoint,
                 signed.SignedDocument,
@@ -187,6 +188,21 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             throw;
         }
     }
+
+    private static PuFiscalizationOptionsV5 BuildConfiguration(CompanyFiscalContext context) => new()
+    {
+        Environment = context.Company.Environment,
+        Endpoint = context.Company.Endpoint,
+        IssuerTin = context.Company.Tin,
+        BusinessUnitCode = context.BusinessUnit.Code,
+        TcrCode = context.Device.TcrCode,
+        SoftwareCode = context.Company.SoftwareCode,
+        OperatorCode = context.Operator.OperatorCode,
+        SellerName = context.Company.LegalName,
+        SellerAddress = context.Company.Address ?? context.BusinessUnit.Address ?? string.Empty,
+        SellerTown = context.Company.Town ?? context.BusinessUnit.Town ?? string.Empty,
+        SellerCountry = context.Company.Country
+    };
 
     private string GenerateQrCodeData(
         FiscalInvoice invoice,

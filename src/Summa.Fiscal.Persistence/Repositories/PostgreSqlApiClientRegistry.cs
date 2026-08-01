@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Summa.Fiscal.Application.Abstractions;
 using Summa.Fiscal.Persistence.Entities;
@@ -43,6 +44,8 @@ public sealed class PostgreSqlApiClientRegistry(SummaFiscalDbContext dbContext)
         IReadOnlyCollection<string> permissions,
         IReadOnlyCollection<Guid> companyIds,
         DateTimeOffset? expiresAt,
+        string actor,
+        string correlationId,
         CancellationToken cancellationToken)
     {
         Validate(name, permissions, companyIds, expiresAt);
@@ -78,11 +81,13 @@ public sealed class PostgreSqlApiClientRegistry(SummaFiscalDbContext dbContext)
         };
 
         dbContext.ApiClients.Add(record);
+        dbContext.FiscalAudits.Add(CreateAudit("API_CLIENT_CREATED", actor, correlationId,
+            new { record.Id, record.ClientId, record.Name, permissions, companyIds, expiresAt }, now));
         await dbContext.SaveChangesAsync(cancellationToken);
         return new(ToSummary(record), secret);
     }
 
-    public async Task<CreatedApiClient?> RotateKeyAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<CreatedApiClient?> RotateKeyAsync(Guid id, string actor, string correlationId, CancellationToken cancellationToken)
     {
         var record = await dbContext.ApiClients
             .Include(x => x.CompanyAccesses)
@@ -93,16 +98,20 @@ public sealed class PostgreSqlApiClientRegistry(SummaFiscalDbContext dbContext)
         record.ApiKeyHash = Hash(secret);
         record.ApiKeyPrefix = secret[..12];
         record.UpdatedAt = DateTimeOffset.UtcNow;
+        dbContext.FiscalAudits.Add(CreateAudit("API_CLIENT_KEY_ROTATED", actor, correlationId,
+            new { record.Id, record.ClientId, record.Name }, record.UpdatedAt));
         await dbContext.SaveChangesAsync(cancellationToken);
         return new(ToSummary(record), secret);
     }
 
-    public async Task<bool> DeactivateAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<bool> DeactivateAsync(Guid id, string actor, string correlationId, CancellationToken cancellationToken)
     {
         var record = await dbContext.ApiClients.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (record is null) return false;
         record.IsActive = false;
         record.UpdatedAt = DateTimeOffset.UtcNow;
+        dbContext.FiscalAudits.Add(CreateAudit("API_CLIENT_DEACTIVATED", actor, correlationId,
+            new { record.Id, record.ClientId, record.Name }, record.UpdatedAt));
         await dbContext.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -137,8 +146,10 @@ public sealed class PostgreSqlApiClientRegistry(SummaFiscalDbContext dbContext)
             throw new ArgumentException("Naziv aplikacije je obavezan i može imati najviše 200 znakova.");
         if (permissions.Count == 0 || permissions.Any(x => !FiscalApiPermissions.Allowed.Contains(x)))
             throw new ArgumentException("Dozvole aplikacije nijesu ispravne.");
-        if (companyIds.Count == 0 || companyIds.Any(x => x == Guid.Empty))
-            throw new ArgumentException("Aplikacija mora imati pristup najmanje jednoj firmi.");
+        var isPlatformClient = permissions.Contains(FiscalApiPermissions.PlatformAdmin, StringComparer.Ordinal) ||
+            permissions.Contains(FiscalApiPermissions.ClientsAdmin, StringComparer.Ordinal);
+        if ((!isPlatformClient && companyIds.Count == 0) || companyIds.Any(x => x == Guid.Empty))
+            throw new ArgumentException("Aplikacija mora imati pristup najmanje jednoj firmi, osim platformskog administratora.");
         if (expiresAt is { } expiry && expiry <= DateTimeOffset.UtcNow)
             throw new ArgumentException("Datum isteka mora biti u budućnosti.");
     }
@@ -159,4 +170,15 @@ public sealed class PostgreSqlApiClientRegistry(SummaFiscalDbContext dbContext)
 
     private static string[] ParsePermissions(string value) =>
         value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static FiscalAuditRecord CreateAudit(string action, string actor, string correlationId, object data, DateTimeOffset now) =>
+        new()
+        {
+            Action = action,
+            Actor = actor,
+            CorrelationId = correlationId,
+            DataJson = JsonSerializer.Serialize(data),
+            CreatedAt = now,
+            UpdatedAt = now
+        };
 }

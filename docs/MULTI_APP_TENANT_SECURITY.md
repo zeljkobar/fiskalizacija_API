@@ -30,7 +30,13 @@ SHA-256 otisak, nikada čitljiv tajni ključ.
 - `invoices:create` — kreiranje računa u fiskalnom motoru;
 - `invoices:read` — čitanje računa, statusa i QR podatka;
 - `invoices:fiscalize` — slanje računa Poreskoj upravi;
-- `clients:admin` — rezervisano za administrativne funkcije.
+- `platform:admin` — puni pristup svim firmama i administraciji;
+- `companies:read`, `companies:write` — pregled i upravljanje firmama;
+- `configuration:read`, `configuration:write` — poslovne jedinice, ENU i operateri;
+- `certificates:read`, `certificates:manage` — pregled i upravljanje sertifikatima;
+- `audit:read` — pregled audit traga;
+- `alerts:read`, `alerts:manage` — pregled i upravljanje upozorenjima;
+- `clients:admin` — upravljanje API klijentima.
 
 Tipičnom sajtu koji kreira i fiskalizuje račune dodjeljuju se prve tri dozvole.
 
@@ -39,11 +45,16 @@ Tipičnom sajtu koji kreira i fiskalizuje račune dodjeljuju se prve tri dozvole
 Administrativne rute koristi samo backend postojećeg Summa sajta. Browser nikada
 ne smije direktno sadržati administratorski ili klijentski ključ.
 
-Administrativni pozivi trenutno koriste:
+Administrativni pozivi u redovnom radu koriste API-klijent autentifikaciju, potrebnu dozvolu i pristup dodijeljenoj firmi. Za audit backend sajta šalje identitet korisnika iz svoje provjerene sesije:
 
 ```http
-X-Fiscal-Bootstrap-Key: <tajna iz server konfiguracije>
+X-Fiscal-Client-Id: sfc_...
+X-Fiscal-Api-Key: sfa_...
+X-Fiscal-Actor-Id: <ID administratora>
+X-Fiscal-Actor-Name: <ime administratora>
 ```
+
+Bootstrap ključ ostaje samo za kreiranje prvog API klijenta i kontrolisani oporavak.
 
 Rute:
 
@@ -92,20 +103,9 @@ Migracija `AddApiClientsAndTenantAccess` dodaje:
 Idempotency ključ računa je izolovan po firmi. Dvije različite firme mogu koristiti
 isti idempotency ključ bez međusobnog konflikta.
 
-## Šta još nije riješeno ovim slojem
+## Implementirani opseg
 
-Ovaj modul potvrđuje identitet aplikacije i pravo pristupa firmi. Za potpuno
-uvođenje više poreskih obveznika treba još implementirati:
-
-1. administraciju firmi, ENU, uređaja i operatera;
-2. bezbjedan unos i čuvanje PFX sertifikata za svaku firmu;
-3. izbor PU profila i sertifikata prema `companyId` pri fiskalizaciji;
-4. audit zapis koja aplikacija je pokrenula svaku operaciju;
-5. zamjenu bootstrap pristupa punom administratorskom prijavom sajta.
-
-Dok se to ne uradi, fiskalizacija prema PU i dalje koristi jedan razvojno
-konfigurisan profil i jedan sertifikat, iako je API pristup već razdvojen po
-aplikacijama i firmama.
+Sloj sada potvrđuje identitet aplikacije, granularnu dozvolu i pravo pristupa firmi. Implementirani su administracija firmi i fiskalne konfiguracije, šifrovani PFX vault po firmi, automatski izbor PU profila i sertifikata prema računu, trajni audit i upozorenja o isteku sertifikata. Identitet administratora u audit dolazi samo od autentifikovanog backend klijenta; browser mu ne pristupa direktno.
 
 ## Pravila za sajt
 

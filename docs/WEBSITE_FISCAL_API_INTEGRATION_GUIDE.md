@@ -2,6 +2,9 @@
 
 > Za autentifikaciju više sajtova i izolaciju firmi obavezno pročitati i
 > [MULTI_APP_TENANT_SECURITY.md](MULTI_APP_TENANT_SECURITY.md).
+>
+> Za administratorski modul firmi, ENU uređaja, operatera i sertifikata koristiti
+> [WEBSITE_FISCAL_ADMINISTRATION_SPEC.md](WEBSITE_FISCAL_ADMINISTRATION_SPEC.md).
 
 **Status dokumenta:** implementaciono uputstvo  
 **Namjena:** Codex agentu koji razvija sajt Summa Summarum  

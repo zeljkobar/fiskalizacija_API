@@ -6,6 +6,8 @@ using Summa.Fiscal.Api.Middleware;
 using Summa.Fiscal.Api.Security;
 using Summa.Fiscal.Application.Abstractions;
 using Summa.Fiscal.Application.Invoices;
+using Summa.Fiscal.Application.Onboarding;
+using Summa.Fiscal.Application.Certificates;
 using Summa.Fiscal.Infrastructure.Audit;
 using Summa.Fiscal.Infrastructure.Certificates;
 using Summa.Fiscal.Infrastructure.Fiscalization.V5;
@@ -58,6 +60,8 @@ if (usePostgreSql)
     builder.Services.AddFiscalPersistence(fiscalDatabaseConnection!);
     builder.Services.AddScoped<IFiscalInvoiceRepository, PostgreSqlFiscalInvoiceRepository>();
     builder.Services.AddScoped<IApiClientRegistry, PostgreSqlApiClientRegistry>();
+    builder.Services.AddScoped<IFiscalOnboardingRepository, PostgreSqlFiscalOnboardingRepository>();
+    builder.Services.AddScoped<ICertificateExpiryRepository, PostgreSqlCertificateExpiryRepository>();
 }
 else
 {
@@ -72,17 +76,25 @@ builder.Services
         ApiKeyAuthenticationHandler.SchemeName,
         options => builder.Configuration.GetSection(ApiAccessOptions.SectionName).Bind(options));
 builder.Services.AddAuthorization();
+builder.Services.AddSingleton<IBootstrapAdminAuthorizer, BootstrapAdminAuthorizer>();
 builder.Services.AddSingleton<IFiscalAccessAuthorizer, FiscalAccessAuthorizer>();
 builder.Services.Configure<PuFiscalizationOptionsV5>(
     builder.Configuration.GetSection(PuFiscalizationOptionsV5.SectionName));
 builder.Services.Configure<FiscalDevelopmentCertificateOptions>(
     builder.Configuration.GetSection(FiscalDevelopmentCertificateOptions.SectionName));
+builder.Services.Configure<FiscalCertificateVaultOptions>(
+    builder.Configuration.GetSection(FiscalCertificateVaultOptions.SectionName));
 builder.Services.Configure<FiscalExchangeStorageOptionsV5>(
     builder.Configuration.GetSection(FiscalExchangeStorageOptionsV5.SectionName));
 builder.Services.AddSingleton<IAuditService, InMemoryAuditService>();
 builder.Services.AddSingleton<IFiscalInvoiceValidator, FiscalInvoiceValidator>();
 builder.Services.AddScoped<IFiscalInvoiceApplicationService, FiscalInvoiceApplicationService>();
+builder.Services.AddScoped<IFiscalOnboardingService, FiscalOnboardingService>();
+builder.Services.AddScoped<ICertificateExpiryService, CertificateExpiryService>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IPfxCertificateLoader, PfxCertificateLoader>();
+builder.Services.AddSingleton<IFiscalCertificateInspector, FiscalCertificateInspector>();
+builder.Services.AddSingleton<IFiscalCertificateVault, EncryptedFileCertificateVault>();
 builder.Services.AddSingleton<IIicGeneratorV5, IicGeneratorV5>();
 builder.Services.AddSingleton<IRegisterInvoiceXmlBuilderV5, RegisterInvoiceXmlBuilderV5>();
 builder.Services.AddSingleton<IFiscalXmlSignerV5, FiscalXmlSignerV5>();

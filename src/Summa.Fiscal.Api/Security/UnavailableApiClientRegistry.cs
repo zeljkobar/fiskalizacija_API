@@ -13,12 +13,14 @@ public sealed class UnavailableApiClientRegistry : IApiClientRegistry
         IReadOnlyCollection<string> permissions,
         IReadOnlyCollection<Guid> companyIds,
         DateTimeOffset? expiresAt,
+        string actor,
+        string correlationId,
         CancellationToken cancellationToken) => throw NoDatabase();
 
-    public Task<CreatedApiClient?> RotateKeyAsync(Guid id, CancellationToken cancellationToken) =>
+    public Task<CreatedApiClient?> RotateKeyAsync(Guid id, string actor, string correlationId, CancellationToken cancellationToken) =>
         throw NoDatabase();
 
-    public Task<bool> DeactivateAsync(Guid id, CancellationToken cancellationToken) =>
+    public Task<bool> DeactivateAsync(Guid id, string actor, string correlationId, CancellationToken cancellationToken) =>
         throw NoDatabase();
 
     public Task<IReadOnlyCollection<ApiClientSummary>> ListAsync(CancellationToken cancellationToken) =>
