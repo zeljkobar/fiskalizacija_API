@@ -36,6 +36,7 @@ SHA-256 otisak, nikada čitljiv tajni ključ.
 - `certificates:read`, `certificates:manage` — pregled i upravljanje sertifikatima;
 - `audit:read` — pregled audit traga;
 - `alerts:read`, `alerts:manage` — pregled i upravljanje upozorenjima;
+- `activation:read`, `activation:test`, `activation:production` — status, potvrda PU testa i kontrolisana produkcijska aktivacija;
 - `clients:admin` — upravljanje API klijentima.
 
 Tipičnom sajtu koji kreira i fiskalizuje račune dodjeljuju se prve tri dozvole.

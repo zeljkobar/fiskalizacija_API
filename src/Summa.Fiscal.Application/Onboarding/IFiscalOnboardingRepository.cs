@@ -6,7 +6,13 @@ public interface IFiscalOnboardingRepository
     Task<CompanySummary> UpdateCompanyAsync(Guid companyId, CompanyOnboardingCommand command, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<CompanySummary>> ListCompaniesAsync(CancellationToken cancellationToken);
     Task<CompanySummary?> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken);
+    Task<CompanySummary?> GetCompanyByTinAsync(string tin, CancellationToken cancellationToken);
     Task<CompanySummary> SetCompanyActiveAsync(Guid companyId, bool active, CancellationToken cancellationToken);
+    Task<ProductionProfileSummary> UpsertProductionProfileAsync(Guid companyId, Uri endpoint, ProductionProfileCommand command, CancellationToken cancellationToken);
+    Task<ProductionProfileSummary?> GetProductionProfileAsync(Guid companyId, CancellationToken cancellationToken);
+    Task<FiscalDeviceSummary> CreatePendingProductionDeviceAsync(Guid companyId, Guid businessUnitId, string internalCode, CancellationToken cancellationToken);
+    Task<FiscalDeviceSummary> CompleteDeviceRegistrationAsync(Guid companyId, Guid deviceId, string tcrCode, DateTimeOffset registeredAt, CancellationToken cancellationToken);
+    Task MarkDeviceRegistrationFailedAsync(Guid companyId, Guid deviceId, CancellationToken cancellationToken);
     Task<BusinessUnitSummary> AddBusinessUnitAsync(Guid companyId, BusinessUnitCommand command, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<BusinessUnitSummary>> ListBusinessUnitsAsync(Guid companyId, CancellationToken cancellationToken);
     Task<BusinessUnitSummary?> GetBusinessUnitAsync(Guid companyId, Guid businessUnitId, CancellationToken cancellationToken);
@@ -51,6 +57,8 @@ public interface IFiscalOnboardingService
     Task<CompanySummary> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken);
     Task<CompanySummary> UpdateCompanyAsync(Guid companyId, CompanyOnboardingCommand command, string actor, string correlationId, CancellationToken cancellationToken);
     Task<CompanySummary> SetCompanyActiveAsync(Guid companyId, bool active, string actor, string correlationId, CancellationToken cancellationToken);
+    Task<ProductionProfileSummary> ConfigureProductionAsync(Guid companyId, ProductionProfileCommand command, string actor, string correlationId, CancellationToken cancellationToken);
+    Task<ProductionProfileSummary> GetProductionProfileAsync(Guid companyId, CancellationToken cancellationToken);
     Task<BusinessUnitSummary> AddBusinessUnitAsync(Guid companyId, BusinessUnitCommand command, string actor, string correlationId, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<BusinessUnitSummary>> ListBusinessUnitsAsync(Guid companyId, CancellationToken cancellationToken);
     Task<BusinessUnitSummary> GetBusinessUnitAsync(Guid companyId, Guid businessUnitId, CancellationToken cancellationToken);

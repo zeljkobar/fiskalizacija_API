@@ -29,6 +29,7 @@ internal sealed class CompanyConfiguration : FiscalRecordConfiguration<CompanyRe
         b.Property(x => x.Address).HasMaxLength(300);
         b.Property(x => x.Town).HasMaxLength(100);
         b.Property(x => x.Country).HasMaxLength(3).HasDefaultValue("MNE").IsRequired();
+        b.Property(x => x.ActiveEnvironment).HasMaxLength(20).HasDefaultValue("Test").IsRequired();
         b.HasIndex(x => x.Tin).IsUnique();
     }
 }
@@ -69,12 +70,35 @@ internal sealed class FiscalProfileConfiguration : FiscalRecordConfiguration<Fis
         b.ToTable("fiscal_profiles");
         b.Property(x => x.Environment).HasMaxLength(20).IsRequired();
         b.Property(x => x.Endpoint).HasMaxLength(500).IsRequired();
+        b.Property(x => x.ProducerCode).HasMaxLength(50);
+        b.Property(x => x.SoftwareName).HasMaxLength(200);
+        b.Property(x => x.SoftwareVersion).HasMaxLength(50);
+        b.Property(x => x.PaymentPolicy).HasMaxLength(30).HasDefaultValue("Any").IsRequired();
         b.Property(x => x.SoftwareCode).HasMaxLength(50).IsRequired();
         b.Property(x => x.MaintainerCode).HasMaxLength(50).IsRequired();
-        b.HasIndex(x => x.CompanyId).IsUnique();
-        b.HasOne(x => x.Company).WithOne(x => x.FiscalProfile)
-            .HasForeignKey<FiscalProfileRecord>(x => x.CompanyId)
+        b.HasIndex(x => new { x.CompanyId, x.Environment }).IsUnique();
+        b.HasOne(x => x.Company).WithMany(x => x.FiscalProfiles)
+            .HasForeignKey(x => x.CompanyId)
             .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class FiscalActivationConfiguration : FiscalRecordConfiguration<FiscalActivationRecord>
+{
+    protected override void ConfigureRecord(EntityTypeBuilder<FiscalActivationRecord> b)
+    {
+        b.ToTable("fiscal_activations");
+        b.Property(x => x.Status).HasMaxLength(30).IsRequired();
+        b.Property(x => x.TestJikr).HasMaxLength(100);
+        b.Property(x => x.TestConfigurationHash).HasMaxLength(64);
+        b.Property(x => x.TestPassedBy).HasMaxLength(200);
+        b.Property(x => x.ProductionActivatedBy).HasMaxLength(200);
+        b.HasIndex(x => x.CompanyId).IsUnique();
+        b.HasOne(x => x.Company).WithOne(x => x.FiscalActivation)
+            .HasForeignKey<FiscalActivationRecord>(x => x.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<FiscalInvoiceRecord>().WithMany()
+            .HasForeignKey(x => x.TestInvoiceId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -83,11 +107,12 @@ internal sealed class BusinessUnitConfiguration : FiscalRecordConfiguration<Busi
     protected override void ConfigureRecord(EntityTypeBuilder<BusinessUnitRecord> b)
     {
         b.ToTable("business_units");
+        b.Property(x => x.Environment).HasMaxLength(20).HasDefaultValue("Test").IsRequired();
         b.Property(x => x.Code).HasMaxLength(50).IsRequired();
         b.Property(x => x.Name).HasMaxLength(200).IsRequired();
         b.Property(x => x.Address).HasMaxLength(300);
         b.Property(x => x.Town).HasMaxLength(100);
-        b.HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+        b.HasIndex(x => new { x.CompanyId, x.Environment, x.Code }).IsUnique();
         b.HasOne(x => x.Company).WithMany(x => x.BusinessUnits)
             .HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }
@@ -98,9 +123,11 @@ internal sealed class FiscalDeviceConfiguration : FiscalRecordConfiguration<Fisc
     protected override void ConfigureRecord(EntityTypeBuilder<FiscalDeviceRecord> b)
     {
         b.ToTable("fiscal_devices");
-        b.Property(x => x.TcrCode).HasMaxLength(50).IsRequired();
+        b.Property(x => x.TcrCode).HasMaxLength(50);
         b.Property(x => x.InternalCode).HasMaxLength(100).IsRequired();
-        b.HasIndex(x => x.TcrCode).IsUnique();
+        b.Property(x => x.RegistrationStatus).HasMaxLength(30).HasDefaultValue("Registered").IsRequired();
+        b.HasIndex(x => x.TcrCode).IsUnique().HasFilter("\"TcrCode\" IS NOT NULL");
+        b.HasIndex(x => new { x.BusinessUnitId, x.InternalCode }).IsUnique();
         b.HasOne(x => x.BusinessUnit).WithMany(x => x.Devices)
             .HasForeignKey(x => x.BusinessUnitId).OnDelete(DeleteBehavior.Restrict);
     }
@@ -111,10 +138,11 @@ internal sealed class FiscalOperatorConfiguration : FiscalRecordConfiguration<Fi
     protected override void ConfigureRecord(EntityTypeBuilder<FiscalOperatorRecord> b)
     {
         b.ToTable("fiscal_operators");
+        b.Property(x => x.Environment).HasMaxLength(20).HasDefaultValue("Test").IsRequired();
         b.Property(x => x.OperatorCode).HasMaxLength(50).IsRequired();
         b.Property(x => x.FirstName).HasMaxLength(100);
         b.Property(x => x.LastName).HasMaxLength(100);
-        b.HasIndex(x => new { x.CompanyId, x.OperatorCode }).IsUnique();
+        b.HasIndex(x => new { x.CompanyId, x.Environment, x.OperatorCode }).IsUnique();
         b.HasOne(x => x.Company).WithMany(x => x.Operators)
             .HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }

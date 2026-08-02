@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Summa.Fiscal.Persistence;
@@ -11,9 +12,11 @@ using Summa.Fiscal.Persistence;
 namespace Summa.Fiscal.Persistence.Migrations
 {
     [DbContext(typeof(SummaFiscalDbContext))]
-    partial class SummaFiscalDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802121928_AddEnvironmentProfilesAndTcrRegistration")]
+    partial class AddEnvironmentProfilesAndTcrRegistration
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

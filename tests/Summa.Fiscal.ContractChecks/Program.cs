@@ -8,6 +8,7 @@ var builder = new RegisterInvoiceXmlBuilderV5();
 var validator = new FiscalXmlSchemaValidatorV5(schemaPath);
 VerifySummaTestConfiguration();
 VerifySoapResponseParsing();
+VerifyRegisterTcrContract();
 VerifyQrCodeGeneration();
 await VerifyEncryptedCertificateVaultAsync();
 await VerifyCertificateExpiryAlertsAsync();
@@ -420,6 +421,32 @@ static async Task VerifyTransportPersistenceAsync(FiscalDryRunResultV5 dryRun)
             Directory.Delete(fullTestRoot, recursive: true);
         }
     }
+}
+
+static void VerifyRegisterTcrContract()
+{
+    var request = new RegisterTcrXmlBuilderV5().BuildUnsigned(new(
+        Guid.Parse("11111111-2222-3333-8444-555555555555"),
+        new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(2)),
+        "02825767", "fx318ob312", "SUMMA-API-BANK-01", "lq099vq111", "qf401hk617",
+        new DateOnly(2026, 8, 2)));
+    var validation = new FiscalXmlSchemaValidatorV5(FindOfficialSchema()).Validate(request);
+    if (!validation.IsValid)
+        throw new InvalidOperationException("RegisterTCR request nije validan: " + string.Join("; ", validation.Errors.Select(x => x.Message)));
+
+    const string response = """
+        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+          <soapenv:Body>
+            <RegisterTCRResponse xmlns="https://efi.tax.gov.me/fs/schema" Id="Response" Version="1">
+              <Header UUID="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" RequestUUID="11111111-2222-3333-8444-555555555555" SendDateTime="2026-08-02T12:00:01+02:00" />
+              <TCRCode>aa111bb222</TCRCode>
+            </RegisterTCRResponse>
+          </soapenv:Body>
+        </soapenv:Envelope>
+        """;
+    var parsed = new RegisterTcrResponseParserV5().Parse(response);
+    if (!parsed.IsSuccess || parsed.TcrCode != "aa111bb222")
+        throw new InvalidOperationException("RegisterTCR response parser nije vratio TCRCode.");
 }
 
 static void WriteErrors(FiscalXmlValidationResultV5 validationResult)

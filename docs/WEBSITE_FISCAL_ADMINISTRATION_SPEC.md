@@ -80,7 +80,7 @@ X-Fiscal-Actor-Name: <ime za audit>
 X-Correlation-Id: <UUID ili drugi stabilan identifikator zahtjeva>
 ```
 
-Dozvole administratorskog klijenta biraju se po stvarnoj ulozi: `platform:admin`, `companies:read`, `companies:write`, `configuration:read`, `configuration:write`, `certificates:read`, `certificates:manage`, `audit:read`, `alerts:read`, `alerts:manage` i `clients:admin`.
+Dozvole administratorskog klijenta biraju se po stvarnoj ulozi: `platform:admin`, `companies:read`, `companies:write`, `configuration:read`, `configuration:write`, `certificates:read`, `certificates:manage`, `audit:read`, `alerts:read`, `alerts:manage`, `activation:read`, `activation:test`, `activation:production` i `clients:admin`.
 
 JSON zahtjevi koriste:
 
@@ -515,7 +515,20 @@ ACTIVE_CERTIFICATE_EXPIRED
 
 UI mapira svaki kod na tačan onboarding korak i nudi link „Ispravi“. Dugme za kontrolisano fiskalizovanje mora biti onemogućeno kada je `isReady=false`.
 
-**NEDOSTAJE:** poseban status aktivacije testnog i produkcionog rada, uključujući potvrdu da je kontrolni test prošao.
+**IMPLEMENTIRANO:** poseban status aktivacije testnog i produkcionog rada sa dokazom stvarno fiskalizovanog testnog računa, JIKR-om, hashom konfiguracije, rokom važenja testa i audit tragom.
+
+Activation rute:
+
+```text
+GET  /api/v1/admin/companies/{companyId}/activation
+POST /api/v1/admin/companies/{companyId}/activation/confirm-test
+POST /api/v1/admin/companies/{companyId}/activation/production
+POST /api/v1/admin/companies/{companyId}/activation/return-to-test
+```
+
+Potvrda testa šalje `invoiceId` stvarno fiskalizovanog računa i `confirmation` vrijednost `CONFIRM_TEST:<PIB>`. API provjerava pripadnost računa, status `Fiscalized`, JIKR, sačuvani uspješni PU exchange i tačan testni endpoint.
+
+Produkcijska aktivacija zahtijeva `activation:production`, važeći test iste konfiguracije i `ACTIVATE_PRODUCTION:<PIB>`. Produkcijski endpoint se uzima samo iz serverske konfiguracije. Povratak koristi `RETURN_TO_TEST:<PIB>`, briše važenje prethodnog testa i ponovo otključava konfiguraciju.
 
 ---
 
@@ -714,9 +727,8 @@ Live test prema PU ne pripada standardnom CI procesu i mora zahtijevati eksplici
 
 Prioritetni redosljed u Fiscal API projektu:
 
-1. Eksplicitni test/production activation workflow.
-2. OpenAPI/Swagger ugovor i automatski contract testovi.
-3. Kanal isporuke alertova (e-mail i/ili notifikacija sajta) sa retry pravilima.
+1. OpenAPI/Swagger ugovor i automatski contract testovi.
+2. Kanal isporuke alertova (e-mail i/ili notifikacija sajta) sa retry pravilima.
 
 Sajt sada može implementirati kompletno listanje, unos, izmjenu i soft-deaktivaciju osnovne fiskalne konfiguracije uz granularne dozvole i tenant izolaciju. Preostale stavke su potrebne za produkcionu aktivaciju i monitoring.
 
@@ -732,7 +744,7 @@ Administratorski modul je spreman za produkciju tek kada:
 - [ ] testno i produkciono okruženje budu jasno razdvojeni;
 - [ ] sertifikat i lozinka nikada ne završe u bazi/logovima sajta;
 - [ ] glavni vault ključ ima zaštićen backup i proceduru oporavka;
-- [ ] readiness i produkciona aktivacija budu odvojeni koraci;
+- [x] readiness i produkciona aktivacija budu odvojeni koraci;
 - [x] postoje trajni alarmi i background provjera za istek sertifikata;
 - [ ] audit se može pregledati, ali ne brisati;
 - [ ] kontrolisani PU test prođe za firmu;

@@ -32,7 +32,7 @@ public static class FiscalDevelopmentDataSeeder
             IsActive = true,
             CreatedAt = now,
             UpdatedAt = now,
-            FiscalProfile = new FiscalProfileRecord
+            FiscalProfiles = [new FiscalProfileRecord
             {
                 CompanyId = CompanyId,
                 Environment = "Test",
@@ -42,13 +42,14 @@ public static class FiscalDevelopmentDataSeeder
                 IsActive = true,
                 CreatedAt = now,
                 UpdatedAt = now
-            },
+            }],
             BusinessUnits =
             [
                 new BusinessUnitRecord
                 {
                     Id = BusinessUnitId,
                     CompanyId = CompanyId,
+                    Environment = "Test",
                     Code = "oo940dt107",
                     Name = "Summa Summarum",
                     Address = "MAKEDONSKA",
@@ -63,6 +64,8 @@ public static class FiscalDevelopmentDataSeeder
                             Id = DeviceId,
                             TcrCode = "wx860oc926",
                             InternalCode = "ENU-summa",
+                            RegistrationStatus = "Registered",
+                            RegisteredAt = now,
                             IsActive = true,
                             CreatedAt = now,
                             UpdatedAt = now
@@ -76,6 +79,7 @@ public static class FiscalDevelopmentDataSeeder
                 {
                     Id = OperatorId,
                     CompanyId = CompanyId,
+                    Environment = "Test",
                     OperatorCode = "xg960dc979",
                     FirstName = "Željko",
                     LastName = "Đuranović",

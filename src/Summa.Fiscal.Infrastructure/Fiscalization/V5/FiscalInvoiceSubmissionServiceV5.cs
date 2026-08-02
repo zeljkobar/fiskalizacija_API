@@ -58,6 +58,13 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             cancellationToken);
         var configuration = BuildConfiguration(fiscalContext);
         configuration.EnsureReadyForInvoice();
+        if (string.Equals(fiscalContext.Company.Environment, "Production", StringComparison.Ordinal) &&
+            string.Equals(fiscalContext.Company.PaymentPolicy, "BankOnly", StringComparison.Ordinal) &&
+            invoice.Payments.Any(payment => payment.PaymentType != PaymentType.BankAccount))
+        {
+            throw new FiscalOnboardingException("PRODUCTION_PAYMENT_POLICY_VIOLATION",
+                "Produkcioni profil firme dozvoljava isključivo bezgotovinsko plaćanje preko bankovnog računa.");
+        }
         var ordinalNumber = ReadOrdinalNumber(invoice.InvoiceNumber);
         var issueDateTime = ToMontenegroTime(invoice.IssueDateTime);
 
@@ -195,7 +202,7 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
         Endpoint = context.Company.Endpoint,
         IssuerTin = context.Company.Tin,
         BusinessUnitCode = context.BusinessUnit.Code,
-        TcrCode = context.Device.TcrCode,
+        TcrCode = context.Device.TcrCode ?? throw new InvalidOperationException("ENU nije registrovan kod Poreske uprave."),
         SoftwareCode = context.Company.SoftwareCode,
         OperatorCode = context.Operator.OperatorCode,
         SellerName = context.Company.LegalName,
@@ -265,7 +272,7 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             .ToArray();
 
         return new(
-            new(Guid.NewGuid(), DateTimeOffset.Now),
+            new(Guid.NewGuid(), issueDateTime),
             new(
                 isCash ? PuInvoiceTypeV5.Cash : PuInvoiceTypeV5.NonCash,
                 issueDateTime,

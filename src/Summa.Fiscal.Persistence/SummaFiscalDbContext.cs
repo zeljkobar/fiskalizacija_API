@@ -15,6 +15,7 @@ public sealed class SummaFiscalDbContext(DbContextOptions<SummaFiscalDbContext> 
     public DbSet<FiscalOperatorRecord> FiscalOperators => Set<FiscalOperatorRecord>();
     public DbSet<FiscalCertificateRecord> FiscalCertificates => Set<FiscalCertificateRecord>();
     public DbSet<FiscalCertificateAlertRecord> FiscalCertificateAlerts => Set<FiscalCertificateAlertRecord>();
+    public DbSet<FiscalActivationRecord> FiscalActivations => Set<FiscalActivationRecord>();
     public DbSet<FiscalAuditRecord> FiscalAudits => Set<FiscalAuditRecord>();
     public DbSet<FiscalInvoiceRecord> FiscalInvoices => Set<FiscalInvoiceRecord>();
     public DbSet<FiscalInvoiceItemRecord> FiscalInvoiceItems => Set<FiscalInvoiceItemRecord>();

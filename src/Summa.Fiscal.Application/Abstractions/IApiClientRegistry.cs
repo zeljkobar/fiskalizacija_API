@@ -16,11 +16,15 @@ public static class FiscalApiPermissions
     public const string AuditRead = "audit:read";
     public const string AlertsRead = "alerts:read";
     public const string AlertsManage = "alerts:manage";
+    public const string ActivationRead = "activation:read";
+    public const string ActivationTest = "activation:test";
+    public const string ActivationProduction = "activation:production";
 
     public static readonly IReadOnlySet<string> Allowed = new HashSet<string>(
         [InvoicesCreate, InvoicesRead, InvoicesFiscalize, ClientsAdmin, PlatformAdmin,
          CompaniesRead, CompaniesWrite, ConfigurationRead, ConfigurationWrite,
-         CertificatesRead, CertificatesManage, AuditRead, AlertsRead, AlertsManage],
+         CertificatesRead, CertificatesManage, AuditRead, AlertsRead, AlertsManage,
+         ActivationRead, ActivationTest, ActivationProduction],
         StringComparer.Ordinal);
 }
 

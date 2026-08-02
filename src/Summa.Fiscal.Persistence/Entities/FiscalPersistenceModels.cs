@@ -17,11 +17,27 @@ public sealed class CompanyRecord : FiscalRecord
     public string Country { get; set; } = "MNE";
     public bool IsVatPayer { get; set; }
     public bool IsActive { get; set; } = true;
-    public FiscalProfileRecord? FiscalProfile { get; set; }
+    public string ActiveEnvironment { get; set; } = "Test";
+    public ICollection<FiscalProfileRecord> FiscalProfiles { get; set; } = [];
     public ICollection<BusinessUnitRecord> BusinessUnits { get; set; } = [];
     public ICollection<FiscalOperatorRecord> Operators { get; set; } = [];
     public ICollection<ApiClientCompanyAccessRecord> ApiClientAccesses { get; set; } = [];
     public ICollection<FiscalCertificateRecord> Certificates { get; set; } = [];
+    public FiscalActivationRecord? FiscalActivation { get; set; }
+}
+
+public sealed class FiscalActivationRecord : FiscalRecord
+{
+    public Guid CompanyId { get; set; }
+    public CompanyRecord Company { get; set; } = null!;
+    public string Status { get; set; } = "NotTested";
+    public Guid? TestInvoiceId { get; set; }
+    public string? TestJikr { get; set; }
+    public string? TestConfigurationHash { get; set; }
+    public DateTimeOffset? TestPassedAt { get; set; }
+    public string? TestPassedBy { get; set; }
+    public DateTimeOffset? ProductionActivatedAt { get; set; }
+    public string? ProductionActivatedBy { get; set; }
 }
 
 public sealed class ApiClientRecord : FiscalRecord
@@ -51,8 +67,13 @@ public sealed class FiscalProfileRecord : FiscalRecord
     public CompanyRecord Company { get; set; } = null!;
     public string Environment { get; set; } = "Test";
     public string Endpoint { get; set; } = string.Empty;
+    public string? ProducerCode { get; set; }
+    public string? SoftwareName { get; set; }
+    public string? SoftwareVersion { get; set; }
     public string SoftwareCode { get; set; } = string.Empty;
     public string MaintainerCode { get; set; } = string.Empty;
+    public bool IsSoftwareCertified { get; set; }
+    public string PaymentPolicy { get; set; } = "Any";
     public bool IsActive { get; set; } = true;
 }
 
@@ -60,6 +81,7 @@ public sealed class BusinessUnitRecord : FiscalRecord
 {
     public Guid CompanyId { get; set; }
     public CompanyRecord Company { get; set; } = null!;
+    public string Environment { get; set; } = "Test";
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Address { get; set; }
@@ -72,8 +94,10 @@ public sealed class FiscalDeviceRecord : FiscalRecord
 {
     public Guid BusinessUnitId { get; set; }
     public BusinessUnitRecord BusinessUnit { get; set; } = null!;
-    public string TcrCode { get; set; } = string.Empty;
+    public string? TcrCode { get; set; }
     public string InternalCode { get; set; } = string.Empty;
+    public string RegistrationStatus { get; set; } = "Registered";
+    public DateTimeOffset? RegisteredAt { get; set; }
     public bool IsActive { get; set; } = true;
 }
 
@@ -81,6 +105,7 @@ public sealed class FiscalOperatorRecord : FiscalRecord
 {
     public Guid CompanyId { get; set; }
     public CompanyRecord Company { get; set; } = null!;
+    public string Environment { get; set; } = "Test";
     public string OperatorCode { get; set; } = string.Empty;
     public string? FirstName { get; set; }
     public string? LastName { get; set; }

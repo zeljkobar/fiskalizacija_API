@@ -12,13 +12,17 @@ var authorizer = new BootstrapAdminAuthorizer(Options.Create(new ApiAccessOption
 }));
 
 var scoped = Context("client-1", "Admin portal",
-    [FiscalApiPermissions.CompaniesRead], [companyId], "admin-42", "Security Check");
+    [FiscalApiPermissions.CompaniesRead, FiscalApiPermissions.ActivationRead], [companyId], "admin-42", "Security Check");
 Assert(authorizer.Authorize(scoped, FiscalApiPermissions.CompaniesRead, companyId).IsAllowed,
     "Klijent mora imati dozvolu za dodijeljenu firmu.");
 Assert(!authorizer.Authorize(scoped, FiscalApiPermissions.CompaniesRead, otherCompanyId).IsAllowed,
     "Klijent ne smije pristupiti drugoj firmi.");
 Assert(!authorizer.Authorize(scoped, FiscalApiPermissions.CertificatesManage, companyId).IsAllowed,
     "Klijent ne smije koristiti nedodijeljenu dozvolu.");
+Assert(authorizer.Authorize(scoped, FiscalApiPermissions.ActivationRead, companyId).IsAllowed,
+    "Klijent mora moći čitati activation status dodijeljene firme.");
+Assert(!authorizer.Authorize(scoped, FiscalApiPermissions.ActivationProduction, companyId).IsAllowed,
+    "Produkcijska aktivacija mora zahtijevati posebnu dozvolu.");
 
 var access = authorizer.Authorize(scoped, FiscalApiPermissions.CompaniesRead, companyId);
 Assert(access.Actor.Contains("api-client:client-1:Admin portal", StringComparison.Ordinal) &&

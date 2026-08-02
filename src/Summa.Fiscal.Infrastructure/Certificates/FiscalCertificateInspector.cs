@@ -33,10 +33,17 @@ public sealed partial class FiscalCertificateInspector : IFiscalCertificateInspe
 
     private static string? ExtractTin(string subject)
     {
-        var match = TinPattern().Match(subject);
-        return match.Success ? match.Groups[1].Value : null;
+        var vatMe = VatMeTinPattern().Match(subject);
+        if (vatMe.Success) return vatMe.Groups[1].Value;
+
+        return TinPattern().Matches(subject)
+            .Select(match => match.Groups[1].Value)
+            .FirstOrDefault(value => value.Length == 8);
     }
 
-    [GeneratedRegex("(?:SERIALNUMBER|OID\\.2\\.5\\.4\\.5)\\s*=\\s*(?:VATME-?)?(\\d{8,13})", RegexOptions.IgnoreCase)]
+    [GeneratedRegex("(?:SERIALNUMBER|OID\\.2\\.5\\.4\\.5)\\s*=\\s*VATME-?(\\d{8})", RegexOptions.IgnoreCase)]
+    private static partial Regex VatMeTinPattern();
+
+    [GeneratedRegex("(?:SERIALNUMBER|OID\\.2\\.5\\.4\\.5)\\s*=\\s*(?:[A-Z]+-?)?(\\d{8,13})", RegexOptions.IgnoreCase)]
     private static partial Regex TinPattern();
 }

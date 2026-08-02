@@ -19,6 +19,35 @@ public sealed record FiscalDeviceCommand(Guid BusinessUnitId, string TcrCode, st
 
 public sealed record FiscalOperatorCommand(string OperatorCode, string? FirstName, string? LastName);
 
+public sealed record ProductionProfileCommand(
+    string ProducerCode,
+    string SoftwareName,
+    string SoftwareVersion,
+    string SoftwareCode,
+    string MaintainerCode,
+    bool IsSoftwareCertified,
+    string BusinessUnitCode,
+    string BusinessUnitName,
+    string? BusinessUnitAddress,
+    string? BusinessUnitTown,
+    string OperatorCode,
+    string? OperatorFirstName,
+    string? OperatorLastName);
+
+public sealed record ProductionProfileSummary(
+    Guid CompanyId,
+    string Endpoint,
+    string ProducerCode,
+    string SoftwareName,
+    string SoftwareVersion,
+    string SoftwareCode,
+    string MaintainerCode,
+    bool IsSoftwareCertified,
+    string PaymentPolicy,
+    BusinessUnitSummary BusinessUnit,
+    FiscalOperatorSummary Operator,
+    FiscalDeviceSummary? Device);
+
 public sealed record CompanySummary(
     Guid Id,
     string Tin,
@@ -32,16 +61,18 @@ public sealed record CompanySummary(
     string Environment,
     string Endpoint,
     string SoftwareCode,
-    string MaintainerCode);
+    string MaintainerCode,
+    string PaymentPolicy);
 
 public sealed record BusinessUnitSummary(
-    Guid Id, Guid CompanyId, string Code, string Name, string? Address, string? Town, bool IsActive);
+    Guid Id, Guid CompanyId, string Environment, string Code, string Name, string? Address, string? Town, bool IsActive);
 
 public sealed record FiscalDeviceSummary(
-    Guid Id, Guid CompanyId, Guid BusinessUnitId, string TcrCode, string InternalCode, bool IsActive);
+    Guid Id, Guid CompanyId, Guid BusinessUnitId, string? TcrCode, string InternalCode,
+    string RegistrationStatus, DateTimeOffset? RegisteredAt, bool IsActive);
 
 public sealed record FiscalOperatorSummary(
-    Guid Id, Guid CompanyId, string OperatorCode, string? FirstName, string? LastName, bool IsActive);
+    Guid Id, Guid CompanyId, string Environment, string OperatorCode, string? FirstName, string? LastName, bool IsActive);
 
 public sealed record CertificateUpload(
     string FileName,

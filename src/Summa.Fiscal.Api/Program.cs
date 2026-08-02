@@ -8,6 +8,7 @@ using Summa.Fiscal.Application.Abstractions;
 using Summa.Fiscal.Application.Invoices;
 using Summa.Fiscal.Application.Onboarding;
 using Summa.Fiscal.Application.Certificates;
+using Summa.Fiscal.Application.Activation;
 using Summa.Fiscal.Infrastructure.Audit;
 using Summa.Fiscal.Infrastructure.Certificates;
 using Summa.Fiscal.Infrastructure.Fiscalization.V5;
@@ -62,6 +63,7 @@ if (usePostgreSql)
     builder.Services.AddScoped<IApiClientRegistry, PostgreSqlApiClientRegistry>();
     builder.Services.AddScoped<IFiscalOnboardingRepository, PostgreSqlFiscalOnboardingRepository>();
     builder.Services.AddScoped<ICertificateExpiryRepository, PostgreSqlCertificateExpiryRepository>();
+    builder.Services.AddScoped<IFiscalActivationRepository, PostgreSqlFiscalActivationRepository>();
 }
 else
 {
@@ -91,6 +93,10 @@ builder.Services.AddSingleton<IFiscalInvoiceValidator, FiscalInvoiceValidator>()
 builder.Services.AddScoped<IFiscalInvoiceApplicationService, FiscalInvoiceApplicationService>();
 builder.Services.AddScoped<IFiscalOnboardingService, FiscalOnboardingService>();
 builder.Services.AddScoped<ICertificateExpiryService, CertificateExpiryService>();
+builder.Services.AddScoped<IFiscalActivationService, FiscalActivationService>();
+builder.Services.AddSingleton(
+    builder.Configuration.GetSection(FiscalActivationPolicy.SectionName).Get<FiscalActivationPolicy>()
+    ?? new FiscalActivationPolicy());
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IPfxCertificateLoader, PfxCertificateLoader>();
 builder.Services.AddSingleton<IFiscalCertificateInspector, FiscalCertificateInspector>();
@@ -100,6 +106,9 @@ builder.Services.AddSingleton<IRegisterInvoiceXmlBuilderV5, RegisterInvoiceXmlBu
 builder.Services.AddSingleton<IFiscalXmlSignerV5, FiscalXmlSignerV5>();
 builder.Services.AddSingleton<ISoapEnvelopeV5, SoapEnvelopeV5>();
 builder.Services.AddSingleton<IRegisterInvoiceResponseParserV5, RegisterInvoiceResponseParserV5>();
+builder.Services.AddSingleton<IRegisterTcrXmlBuilderV5, RegisterTcrXmlBuilderV5>();
+builder.Services.AddSingleton<IRegisterTcrResponseParserV5, RegisterTcrResponseParserV5>();
+builder.Services.AddScoped<IFiscalTcrRegistrationService, FiscalTcrRegistrationServiceV5>();
 builder.Services.AddSingleton<IFiscalQrCodeGeneratorV5, FiscalQrCodeGeneratorV5>();
 builder.Services.AddSingleton<IFiscalDryRunServiceV5, FiscalDryRunServiceV5>();
 builder.Services.AddScoped<IFiscalInvoiceSubmissionServiceV5, FiscalInvoiceSubmissionServiceV5>();

@@ -5,6 +5,7 @@ using Summa.Fiscal.Api.Middleware;
 using Summa.Fiscal.Api.Security;
 using Summa.Fiscal.Application.Onboarding;
 using Summa.Fiscal.Application.Certificates;
+using Summa.Fiscal.Application.Activation;
 using Summa.Fiscal.Application.Abstractions;
 
 namespace Summa.Fiscal.Api.Controllers;
@@ -14,7 +15,9 @@ namespace Summa.Fiscal.Api.Controllers;
 [Route("api/v1/admin/companies")]
 public sealed class CompanyOnboardingController(
     IFiscalOnboardingService service,
-    ICertificateExpiryService certificateExpiryService) : ControllerBase
+    ICertificateExpiryService certificateExpiryService,
+    IFiscalActivationService activationService,
+    IFiscalTcrRegistrationService tcrRegistrationService) : ControllerBase
 {
     [HttpGet]
     [FiscalAdminAuthorize(FiscalApiPermissions.CompaniesRead)]
@@ -61,6 +64,33 @@ public sealed class CompanyOnboardingController(
     [FiscalAdminAuthorize(FiscalApiPermissions.CompaniesWrite, "companyId")]
     public Task<IActionResult> DeactivateCompany(Guid companyId, CancellationToken cancellationToken) =>
         SetCompanyActive(companyId, false, cancellationToken);
+
+    [HttpGet("{companyId:guid}/production-profile")]
+    [FiscalAdminAuthorize(FiscalApiPermissions.ConfigurationRead, "companyId")]
+    public async Task<IActionResult> GetProductionProfile(Guid companyId, CancellationToken cancellationToken)
+    {
+        if (!Authorized()) return UnauthorizedResponse();
+        var result = await service.GetProductionProfileAsync(companyId, cancellationToken);
+        return Ok(ApiResponse<ProductionProfileSummary>.Ok(result, CorrelationId()));
+    }
+
+    [HttpPut("{companyId:guid}/production-profile")]
+    [FiscalAdminAuthorize(FiscalApiPermissions.ConfigurationWrite, "companyId")]
+    public async Task<IActionResult> ConfigureProduction(Guid companyId, [FromBody] ProductionProfileCommand command, CancellationToken cancellationToken)
+    {
+        if (!Authorized()) return UnauthorizedResponse();
+        var result = await service.ConfigureProductionAsync(companyId, command, Actor(), CorrelationId(), cancellationToken);
+        return Ok(ApiResponse<ProductionProfileSummary>.Ok(result, CorrelationId()));
+    }
+
+    [HttpPost("{companyId:guid}/production-profile/register-enu")]
+    [FiscalAdminAuthorize(FiscalApiPermissions.ActivationProduction, "companyId")]
+    public async Task<IActionResult> RegisterProductionEnu(Guid companyId, [FromBody] RegisterProductionTcrCommand command, CancellationToken cancellationToken)
+    {
+        if (!Authorized()) return UnauthorizedResponse();
+        var result = await tcrRegistrationService.RegisterProductionAsync(companyId, command, Actor(), CorrelationId(), cancellationToken);
+        return Ok(ApiResponse<RegisterProductionTcrResult>.Ok(result, CorrelationId()));
+    }
 
     [HttpGet("{companyId:guid}/business-units")]
     [FiscalAdminAuthorize(FiscalApiPermissions.ConfigurationRead, "companyId")]
@@ -290,6 +320,45 @@ public sealed class CompanyOnboardingController(
         return Ok(ApiResponse<CompanyReadiness>.Ok(result, CorrelationId()));
     }
 
+    [HttpGet("{companyId:guid}/activation")]
+    [FiscalAdminAuthorize(FiscalApiPermissions.ActivationRead, "companyId")]
+    public async Task<IActionResult> ActivationStatus(Guid companyId, CancellationToken cancellationToken)
+    {
+        if (!Authorized()) return UnauthorizedResponse();
+        var result = await activationService.GetStatusAsync(companyId, cancellationToken);
+        return Ok(ApiResponse<FiscalActivationStatus>.Ok(result, CorrelationId()));
+    }
+
+    [HttpPost("{companyId:guid}/activation/confirm-test")]
+    [FiscalAdminAuthorize(FiscalApiPermissions.ActivationTest, "companyId")]
+    public async Task<IActionResult> ConfirmControlTest(Guid companyId, [FromBody] ConfirmFiscalTestRequest request, CancellationToken cancellationToken)
+    {
+        if (!Authorized()) return UnauthorizedResponse();
+        var result = await activationService.ConfirmSuccessfulTestAsync(
+            companyId, request.InvoiceId, request.Confirmation, Actor(), CorrelationId(), cancellationToken);
+        return Ok(ApiResponse<FiscalActivationStatus>.Ok(result, CorrelationId()));
+    }
+
+    [HttpPost("{companyId:guid}/activation/production")]
+    [FiscalAdminAuthorize(FiscalApiPermissions.ActivationProduction, "companyId")]
+    public async Task<IActionResult> ActivateProduction(Guid companyId, [FromBody] FiscalActivationConfirmationRequest request, CancellationToken cancellationToken)
+    {
+        if (!Authorized()) return UnauthorizedResponse();
+        var result = await activationService.ActivateProductionAsync(
+            companyId, request.Confirmation, Actor(), CorrelationId(), cancellationToken);
+        return Ok(ApiResponse<FiscalActivationStatus>.Ok(result, CorrelationId()));
+    }
+
+    [HttpPost("{companyId:guid}/activation/return-to-test")]
+    [FiscalAdminAuthorize(FiscalApiPermissions.ActivationProduction, "companyId")]
+    public async Task<IActionResult> ReturnToTest(Guid companyId, [FromBody] FiscalActivationConfirmationRequest request, CancellationToken cancellationToken)
+    {
+        if (!Authorized()) return UnauthorizedResponse();
+        var result = await activationService.ReturnToTestAsync(
+            companyId, request.Confirmation, Actor(), CorrelationId(), cancellationToken);
+        return Ok(ApiResponse<FiscalActivationStatus>.Ok(result, CorrelationId()));
+    }
+
     [HttpGet("{companyId:guid}/audit")]
     [FiscalAdminAuthorize(FiscalApiPermissions.AuditRead, "companyId")]
     public async Task<IActionResult> ListAudit(
@@ -355,3 +424,6 @@ public sealed class CompanyOnboardingController(
     private IActionResult UnauthorizedResponse() => StatusCode(StatusCodes.Status403Forbidden,
         ApiResponse<object>.Fail(new("ADMIN_PERMISSION_DENIED", "Klijent nema potrebnu administratorsku dozvolu.", []), CorrelationId()));
 }
+
+public sealed record ConfirmFiscalTestRequest(Guid InvoiceId, string Confirmation);
+public sealed record FiscalActivationConfirmationRequest(string Confirmation);

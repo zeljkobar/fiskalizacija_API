@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Summa.Fiscal.Persistence;
@@ -11,9 +12,11 @@ using Summa.Fiscal.Persistence;
 namespace Summa.Fiscal.Persistence.Migrations
 {
     [DbContext(typeof(SummaFiscalDbContext))]
-    partial class SummaFiscalDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802105902_AddControlledFiscalActivation")]
+    partial class AddControlledFiscalActivation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -129,13 +132,6 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Environment")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasDefaultValue("Test");
-
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -153,7 +149,7 @@ namespace Summa.Fiscal.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CompanyId", "Environment", "Code")
+                    b.HasIndex("CompanyId", "Code")
                         .IsUnique();
 
                     b.ToTable("business_units", "fiscal");
@@ -222,13 +218,6 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
-
-                    b.Property<string>("ActiveEnvironment")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasDefaultValue("Test");
 
                     b.Property<string>("Address")
                         .HasMaxLength(300)
@@ -513,17 +502,8 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
-                    b.Property<DateTimeOffset?>("RegisteredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RegistrationStatus")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasDefaultValue("Registered");
-
                     b.Property<string>("TcrCode")
+                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
@@ -532,11 +512,9 @@ namespace Summa.Fiscal.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TcrCode")
-                        .IsUnique()
-                        .HasFilter("\"TcrCode\" IS NOT NULL");
+                    b.HasIndex("BusinessUnitId");
 
-                    b.HasIndex("BusinessUnitId", "InternalCode")
+                    b.HasIndex("TcrCode")
                         .IsUnique();
 
                     b.ToTable("fiscal_devices", "fiscal");
@@ -822,13 +800,6 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Environment")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasDefaultValue("Test");
-
                     b.Property<string>("FirstName")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -850,7 +821,7 @@ namespace Summa.Fiscal.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CompanyId", "Environment", "OperatorCode")
+                    b.HasIndex("CompanyId", "OperatorCode")
                         .IsUnique();
 
                     b.ToTable("fiscal_operators", "fiscal");
@@ -916,22 +887,8 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
-                    b.Property<bool>("IsSoftwareCertified")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("MaintainerCode")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("PaymentPolicy")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasDefaultValue("Any");
-
-                    b.Property<string>("ProducerCode")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
@@ -940,20 +897,12 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<string>("SoftwareName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("SoftwareVersion")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CompanyId", "Environment")
+                    b.HasIndex("CompanyId")
                         .IsUnique();
 
                     b.ToTable("fiscal_profiles", "fiscal");
@@ -1175,8 +1124,8 @@ namespace Summa.Fiscal.Persistence.Migrations
             modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.FiscalProfileRecord", b =>
                 {
                     b.HasOne("Summa.Fiscal.Persistence.Entities.CompanyRecord", "Company")
-                        .WithMany("FiscalProfiles")
-                        .HasForeignKey("CompanyId")
+                        .WithOne("FiscalProfile")
+                        .HasForeignKey("Summa.Fiscal.Persistence.Entities.FiscalProfileRecord", "CompanyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
@@ -1214,7 +1163,7 @@ namespace Summa.Fiscal.Persistence.Migrations
 
                     b.Navigation("FiscalActivation");
 
-                    b.Navigation("FiscalProfiles");
+                    b.Navigation("FiscalProfile");
 
                     b.Navigation("Operators");
                 });

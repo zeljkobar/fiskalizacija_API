@@ -1,15 +1,20 @@
 using System.Text.Json;
+using Summa.Fiscal.Application.Activation;
 
 namespace Summa.Fiscal.Application.Onboarding;
 
 public sealed class FiscalOnboardingService(
     IFiscalOnboardingRepository repository,
     IFiscalCertificateVault vault,
-    IFiscalCertificateInspector inspector) : IFiscalOnboardingService
+    IFiscalCertificateInspector inspector,
+    IFiscalActivationRepository activationRepository,
+    FiscalActivationPolicy activationPolicy) : IFiscalOnboardingService
 {
     public async Task<CompanySummary> UpsertCompanyAsync(CompanyOnboardingCommand command, string actor, string correlationId, CancellationToken cancellationToken)
     {
         ValidateCompany(command);
+        var existing = await repository.GetCompanyByTinAsync(command.Tin, cancellationToken);
+        if (existing is not null) await EnsureConfigurationMutableAsync(existing.Id, cancellationToken);
         var result = await repository.UpsertCompanyAsync(command, cancellationToken);
         await AuditAsync(result.Id, "COMPANY_UPSERTED", actor, correlationId, new { result.Tin, result.Environment }, cancellationToken);
         return result;
@@ -25,6 +30,7 @@ public sealed class FiscalOnboardingService(
     public async Task<CompanySummary> UpdateCompanyAsync(Guid companyId, CompanyOnboardingCommand command, string actor, string correlationId, CancellationToken cancellationToken)
     {
         ValidateCompany(command);
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         var result = await repository.UpdateCompanyAsync(companyId, command, cancellationToken);
         await AuditAsync(companyId, "COMPANY_UPDATED", actor, correlationId, new { result.Tin, result.Environment }, cancellationToken);
         return result;
@@ -32,13 +38,32 @@ public sealed class FiscalOnboardingService(
 
     public async Task<CompanySummary> SetCompanyActiveAsync(Guid companyId, bool active, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        if (active) await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         var result = await repository.SetCompanyActiveAsync(companyId, active, cancellationToken);
         await AuditAsync(companyId, active ? "COMPANY_ACTIVATED" : "COMPANY_DEACTIVATED", actor, correlationId, new { result.Id }, cancellationToken);
         return result;
     }
 
+    public async Task<ProductionProfileSummary> ConfigureProductionAsync(Guid companyId, ProductionProfileCommand command, string actor, string correlationId, CancellationToken cancellationToken)
+    {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
+        await GetCompanyAsync(companyId, cancellationToken);
+        ValidateProductionProfile(command);
+        if (!Uri.TryCreate(activationPolicy.ProductionEndpoint, UriKind.Absolute, out var endpoint) || endpoint.Scheme != Uri.UriSchemeHttps)
+            throw new FiscalOnboardingException("PRODUCTION_ENDPOINT_NOT_CONFIGURED", "Produkcioni PU endpoint nije bezbjedno konfigurisan na serveru.");
+        var result = await repository.UpsertProductionProfileAsync(companyId, endpoint, command, cancellationToken);
+        await AuditAsync(companyId, "PRODUCTION_PROFILE_CONFIGURED", actor, correlationId,
+            new { result.ProducerCode, result.SoftwareCode, result.MaintainerCode, result.BusinessUnit.Code, result.Operator.OperatorCode }, cancellationToken);
+        return result;
+    }
+
+    public async Task<ProductionProfileSummary> GetProductionProfileAsync(Guid companyId, CancellationToken cancellationToken) =>
+        await repository.GetProductionProfileAsync(companyId, cancellationToken)
+        ?? throw new FiscalOnboardingException("PRODUCTION_PROFILE_NOT_FOUND", "Produkcioni fiskalni profil nije podešen.");
+
     public async Task<BusinessUnitSummary> AddBusinessUnitAsync(Guid companyId, BusinessUnitCommand command, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         RequireText(command.Code, "BUSINESS_UNIT_CODE_REQUIRED", "Kod poslovne jedinice je obavezan.");
         RequireText(command.Name, "BUSINESS_UNIT_NAME_REQUIRED", "Naziv poslovne jedinice je obavezan.");
         var result = await repository.AddBusinessUnitAsync(companyId, command, cancellationToken);
@@ -55,6 +80,7 @@ public sealed class FiscalOnboardingService(
 
     public async Task<BusinessUnitSummary> UpdateBusinessUnitAsync(Guid companyId, Guid businessUnitId, BusinessUnitCommand command, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         ValidateBusinessUnit(command);
         var result = await repository.UpdateBusinessUnitAsync(companyId, businessUnitId, command, cancellationToken);
         await AuditAsync(companyId, "BUSINESS_UNIT_UPDATED", actor, correlationId, new { result.Id, result.Code }, cancellationToken);
@@ -63,6 +89,7 @@ public sealed class FiscalOnboardingService(
 
     public async Task<BusinessUnitSummary> SetBusinessUnitActiveAsync(Guid companyId, Guid businessUnitId, bool active, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         var result = await repository.SetBusinessUnitActiveAsync(companyId, businessUnitId, active, cancellationToken);
         await AuditAsync(companyId, active ? "BUSINESS_UNIT_ACTIVATED" : "BUSINESS_UNIT_DEACTIVATED", actor, correlationId, new { result.Id }, cancellationToken);
         return result;
@@ -70,6 +97,7 @@ public sealed class FiscalOnboardingService(
 
     public async Task<FiscalDeviceSummary> AddDeviceAsync(Guid companyId, FiscalDeviceCommand command, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         RequireText(command.TcrCode, "TCR_CODE_REQUIRED", "ENU/TCR kod je obavezan.");
         RequireText(command.InternalCode, "DEVICE_INTERNAL_CODE_REQUIRED", "Interni kod uređaja je obavezan.");
         var result = await repository.AddDeviceAsync(companyId, command, cancellationToken);
@@ -86,6 +114,7 @@ public sealed class FiscalOnboardingService(
 
     public async Task<FiscalDeviceSummary> UpdateDeviceAsync(Guid companyId, Guid deviceId, FiscalDeviceCommand command, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         ValidateDevice(command);
         var result = await repository.UpdateDeviceAsync(companyId, deviceId, command, cancellationToken);
         await AuditAsync(companyId, "FISCAL_DEVICE_UPDATED", actor, correlationId, new { result.Id, result.TcrCode }, cancellationToken);
@@ -94,6 +123,7 @@ public sealed class FiscalOnboardingService(
 
     public async Task<FiscalDeviceSummary> SetDeviceActiveAsync(Guid companyId, Guid deviceId, bool active, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         var result = await repository.SetDeviceActiveAsync(companyId, deviceId, active, cancellationToken);
         await AuditAsync(companyId, active ? "FISCAL_DEVICE_ACTIVATED" : "FISCAL_DEVICE_DEACTIVATED", actor, correlationId, new { result.Id }, cancellationToken);
         return result;
@@ -101,6 +131,7 @@ public sealed class FiscalOnboardingService(
 
     public async Task<FiscalOperatorSummary> AddOperatorAsync(Guid companyId, FiscalOperatorCommand command, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         RequireText(command.OperatorCode, "OPERATOR_CODE_REQUIRED", "Kod operatera je obavezan.");
         var result = await repository.AddOperatorAsync(companyId, command, cancellationToken);
         await AuditAsync(companyId, "FISCAL_OPERATOR_CREATED", actor, correlationId, new { result.Id, result.OperatorCode }, cancellationToken);
@@ -116,6 +147,7 @@ public sealed class FiscalOnboardingService(
 
     public async Task<FiscalOperatorSummary> UpdateOperatorAsync(Guid companyId, Guid operatorId, FiscalOperatorCommand command, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         ValidateOperator(command);
         var result = await repository.UpdateOperatorAsync(companyId, operatorId, command, cancellationToken);
         await AuditAsync(companyId, "FISCAL_OPERATOR_UPDATED", actor, correlationId, new { result.Id, result.OperatorCode }, cancellationToken);
@@ -124,6 +156,7 @@ public sealed class FiscalOnboardingService(
 
     public async Task<FiscalOperatorSummary> SetOperatorActiveAsync(Guid companyId, Guid operatorId, bool active, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         var result = await repository.SetOperatorActiveAsync(companyId, operatorId, active, cancellationToken);
         await AuditAsync(companyId, active ? "FISCAL_OPERATOR_ACTIVATED" : "FISCAL_OPERATOR_DEACTIVATED", actor, correlationId, new { result.Id }, cancellationToken);
         return result;
@@ -131,6 +164,7 @@ public sealed class FiscalOnboardingService(
 
     public async Task<FiscalCertificateSummary> UploadCertificateAsync(Guid companyId, CertificateUpload upload, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         if (upload.PfxBytes.Length == 0) throw new FiscalOnboardingException("CERT_UPLOAD_INVALID_FILE", "PFX/P12 fajl je prazan.");
         if (upload.PfxBytes.Length > 5 * 1024 * 1024) throw new FiscalOnboardingException("CERT_UPLOAD_FILE_TOO_LARGE", "Sertifikat ne smije biti veći od 5 MB.");
         var company = await repository.GetCompanyAsync(companyId, cancellationToken)
@@ -166,6 +200,7 @@ public sealed class FiscalOnboardingService(
 
     public async Task<FiscalCertificateSummary> SetCertificateActiveAsync(Guid companyId, Guid certificateId, bool active, string actor, string correlationId, CancellationToken cancellationToken)
     {
+        await EnsureConfigurationMutableAsync(companyId, cancellationToken);
         var certificate = await repository.GetCertificateAsync(companyId, certificateId, cancellationToken)
             ?? throw new FiscalOnboardingException("CERT_ACTIVATE_NOT_FOUND", "Sertifikat ne postoji.");
         if (active && certificate.ValidTo <= DateTimeOffset.UtcNow)
@@ -225,15 +260,42 @@ public sealed class FiscalOnboardingService(
     private Task AuditAsync(Guid? companyId, string action, string actor, string correlationId, object data, CancellationToken cancellationToken) =>
         repository.AddAuditAsync(companyId, action, correlationId, actor, JsonSerializer.Serialize(data), cancellationToken);
 
+    private async Task EnsureConfigurationMutableAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        if (await activationRepository.IsProductionActiveAsync(companyId, cancellationToken))
+            throw new FiscalOnboardingException("PRODUCTION_CONFIGURATION_LOCKED", "Produkcijska konfiguracija je zaključana. Vratite firmu u Test režim prije izmjena.");
+    }
+
     private static void ValidateCompany(CompanyOnboardingCommand command)
     {
         RequireText(command.Tin, "TIN_REQUIRED", "PIB je obavezan.");
         if (command.Tin.Any(c => !char.IsDigit(c))) throw new FiscalOnboardingException("TIN_INVALID", "PIB mora sadržati samo cifre.");
         RequireText(command.LegalName, "LEGAL_NAME_REQUIRED", "Pravni naziv firme je obavezan.");
         RequireText(command.Country, "COUNTRY_REQUIRED", "Država firme je obavezna.");
-        if (command.Environment is not ("Test" or "Production")) throw new FiscalOnboardingException("ENVIRONMENT_INVALID", "Okruženje mora biti Test ili Production.");
+        if (command.Environment != "Test") throw new FiscalOnboardingException("CONTROLLED_ACTIVATION_REQUIRED", "Firma se kroz onboarding podešava samo u Test režimu. Production se aktivira posebnim workflow-om.");
         if (!Uri.TryCreate(command.Endpoint, UriKind.Absolute, out var endpoint) || endpoint.Scheme != Uri.UriSchemeHttps)
             throw new FiscalOnboardingException("ENDPOINT_INVALID", "PU endpoint mora biti apsolutna HTTPS adresa.");
+    }
+
+    private static void ValidateProductionProfile(ProductionProfileCommand command)
+    {
+        RequireRegistrationCode(command.ProducerCode, "PRODUCER_CODE_INVALID", "Kod proizvođača");
+        RequireText(command.SoftwareName, "SOFTWARE_NAME_REQUIRED", "Naziv softvera je obavezan.");
+        RequireText(command.SoftwareVersion, "SOFTWARE_VERSION_REQUIRED", "Verzija softvera je obavezna.");
+        RequireRegistrationCode(command.SoftwareCode, "SOFTWARE_CODE_INVALID", "Kod verzije softvera");
+        RequireRegistrationCode(command.MaintainerCode, "MAINTAINER_CODE_INVALID", "Kod održavaoca");
+        if (!command.IsSoftwareCertified)
+            throw new FiscalOnboardingException("SOFTWARE_NOT_CERTIFIED", "Produkcioni softver mora biti sertifikovan u SEP portalu.");
+        RequireRegistrationCode(command.BusinessUnitCode, "BUSINESS_UNIT_CODE_INVALID", "Kod poslovne jedinice");
+        RequireText(command.BusinessUnitName, "BUSINESS_UNIT_NAME_REQUIRED", "Naziv poslovne jedinice je obavezan.");
+        RequireRegistrationCode(command.OperatorCode, "OPERATOR_CODE_INVALID", "Kod operatera");
+    }
+
+    private static void RequireRegistrationCode(string value, string code, string label)
+    {
+        RequireText(value, code, $"{label} je obavezan.");
+        if (value.Length > 50 || value.Any(c => !char.IsLetterOrDigit(c)))
+            throw new FiscalOnboardingException(code, $"{label} smije sadržati samo slova i cifre.");
     }
 
     private static void ValidateBusinessUnit(BusinessUnitCommand command)
