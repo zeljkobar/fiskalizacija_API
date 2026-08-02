@@ -1,0 +1,86 @@
+name: summa-fiscal-production
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: api
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://127.0.0.1:${SUMMA_API_PORT:-8585}
+      SUMMA_LOAD_API_SECRETS: "1"
+      Database__MigrateOnStartup: "true"
+      Fiscalization__CertificateVault__RootPath: /var/lib/summa/certificates
+      Fiscalization__ExchangeStorage__RootPath: /var/lib/summa/exchanges
+      Fiscalization__DevelopmentCertificate__Path: /run/secrets/fiscal_certificate
+    secrets:
+      - database_connection
+      - bootstrap_admin_key
+      - certificate_vault_key
+      - fiscal_certificate
+      - fiscal_certificate_password
+    volumes:
+      - ./data/certificates:/var/lib/summa/certificates
+      - ./data/exchanges:/var/lib/summa/exchanges
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:${SUMMA_API_PORT:-8585}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    security_opt: ["no-new-privileges:true"]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: worker
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      SUMMA_LOAD_WORKER_SECRETS: "1"
+    secrets:
+      - database_connection
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt: ["no-new-privileges:true"]
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGDATABASE: summa_fiscal
+      PGUSER: summa_fiscal_app
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_GROUP_ID: ${BACKUP_GROUP_ID:-1000}
+    secrets:
+      - postgres_password
+    volumes:
+      - ./backup.sh:/usr/local/bin/backup.sh:ro
+      - ./backups:/backups
+      - ./data/certificates:/source/certificates:ro
+      - ./data/exchanges:/source/exchanges:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/backup.sh"]
+    security_opt: ["no-new-privileges:true"]
+
+secrets:
+  postgres_password:
+    file: ./local-secrets/postgres_password.txt
+  database_connection:
+    file: ./local-secrets/database_connection.txt
+  bootstrap_admin_key:
+    file: ./local-secrets/bootstrap_admin_key.txt
+  certificate_vault_key:
+    file: ./local-secrets/certificate_vault_key.txt
+  fiscal_certificate:
+    file: ./local-secrets/fiscal-certificate.pfx
+  fiscal_certificate_password:
+    file: ./local-secrets/fiscal_certificate_password.txt

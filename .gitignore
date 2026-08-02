@@ -6,6 +6,9 @@
 # dotenv files
 .env
 local-secrets/
+deploy/backups/
+deploy/data/
+deploy/transfer/
 
 # User-specific files
 *.rsuser

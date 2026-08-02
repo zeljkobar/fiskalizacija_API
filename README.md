@@ -76,4 +76,6 @@ Napraviti stabilan, testiran i dokumentovan **Fiscal API** koji može:
 
 Osnovni Fiscal API, kupac na računu, atomska numeracija, potpuni storno, testna i produkciona fiskalizacija, šifrovano upravljanje sertifikatom, granularna administracija, produkcioni profil i registracija produkcionog ENU-a su implementirani. Firma je u stanju `ProductionActive`, a prvi stvarni bezgotovinski račun uspješno je fiskalizovan 02.08.2026.
 
+Produkcijski API radi u Dockeru iza Nginx/HTTPS-a na `https://fiscal.summasummarum.me`, koristi PostgreSQL 16 instaliran na host serveru i ima trajno čuvanje fiskalnih razmjena, dnevni backup i automatsko pokretanje nakon restarta. Javna provjera je `GET /health`; početna ruta `/` trenutno nema web interfejs i očekivano vraća `404`.
+
 Precizan pregled završenog rada, provjera i preostalih koraka nalazi se u [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md). Operativni plan je u [`docs/ROADMAP.md`](docs/ROADMAP.md), a indeks tehničkih dokumenata u [`docs/README.md`](docs/README.md).

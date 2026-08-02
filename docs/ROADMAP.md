@@ -41,7 +41,8 @@ Status je ažuriran 02.08.2026. Detaljan presjek završenog rada nalazi se u [`C
 - [x] Registracija produkcionog ENU-a kroz `RegisterTCR`.
 - [x] `BankOnly` politika za trenutni produkcioni profil.
 - [x] Kontrolisana produkciona aktivacija.
-- [ ] Produkcijski deployment API-ja iza HTTPS-a.
+- [x] Produkcijski deployment API-ja iza HTTPS-a (`fiscal.summasummarum.me`) sa host PostgreSQL 16, Docker API/Worker servisima i automatskim restartom.
+- [x] Dnevni PostgreSQL/vault/exchange backup i uspješna izolovana restore proba.
 - [ ] Produkcijski secret manager i dokumentovan backup/restore vault ključa.
 - [ ] Monitoring i kanal isporuke alerta.
 
@@ -57,6 +58,9 @@ Status je ažuriran 02.08.2026. Detaljan presjek završenog rada nalazi se u [`C
 - [ ] Implementirati konačni PDF/štampu u administrativnom sajtu.
 - [ ] Slanje e-mailom.
 - [ ] Pregled i pretraga fiskalizovanih računa.
+- [ ] Korisnička prijava i tenant-aware klijentski portal na `fiscal.summasummarum.me` ili povezani portal u `knjigovodstvo.summasummarum.me`.
+- [ ] Serverska integracija portala sa Fiscal API-jem bez izlaganja API ključa pregledniku.
+- [ ] Obavezni pregled nacrta i eksplicitna potvrda ovlašćenog korisnika prije svakog produkcionog slanja.
 
 ## Faza 3 — Accounting Engine
 

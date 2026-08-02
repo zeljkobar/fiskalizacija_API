@@ -1,6 +1,9 @@
 using System.Text.Json.Serialization;
 using System.Security.Cryptography.X509Certificates;
+using System.Net;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.EntityFrameworkCore;
 using Summa.Fiscal.Api.Contracts;
 using Summa.Fiscal.Api.Middleware;
 using Summa.Fiscal.Api.Security;
@@ -54,6 +57,13 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
 });
 
 builder.Services.AddHealthChecks();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownProxies.Clear();
+    options.KnownProxies.Add(IPAddress.Loopback);
+    options.KnownProxies.Add(IPAddress.IPv6Loopback);
+});
 var fiscalDatabaseConnection = builder.Configuration.GetConnectionString("FiscalDatabase");
 var usePostgreSql = !string.IsNullOrWhiteSpace(fiscalDatabaseConnection);
 if (usePostgreSql)
@@ -180,6 +190,13 @@ builder.Services.AddHttpClient<IPuCashDepositSoapClientV5, PuCashDepositSoapClie
 
 var app = builder.Build();
 
+if (usePostgreSql && builder.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<SummaFiscalDbContext>();
+    await dbContext.Database.MigrateAsync();
+}
+
 if (usePostgreSql && app.Environment.IsDevelopment())
 {
     await using var scope = app.Services.CreateAsyncScope();
@@ -187,6 +204,7 @@ if (usePostgreSql && app.Environment.IsDevelopment())
     await FiscalDevelopmentDataSeeder.SeedAsync(dbContext);
 }
 
+app.UseForwardedHeaders();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseAuthentication();

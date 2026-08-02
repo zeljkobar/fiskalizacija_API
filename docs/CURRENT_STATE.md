@@ -99,15 +99,19 @@ Još nijesu završeni:
 - korisnički portal za unos i pregled računa;
 - konačni PDF/štampa računa;
 - e-mail isporuka računa;
-- produkcijski deployment Fiscal API-ja, HTTPS domen i secret manager;
+- produkcijski secret manager i potvrđena off-site kopija vault ključa;
 - automatizovani retry worker;
 - potpuno usklađen offline/naknadni tok;
 - djelimične korekcije, `ERROR_CORRECTIVE` i avansni poslovni workflow-i;
-- monitoring, alert delivery kanal i provjeren backup/restore postupak;
+- monitoring i alert delivery kanal;
+
+Produkcijski deployment je izvršen 02.08.2026. na Ubuntu 24.04 serveru: postojeći host PostgreSQL 16, Nginx/Certbot HTTPS na `fiscal.summasummarum.me`, te API, Worker i backup u Dockeru. API je zdrav, zaštićeni endpoint bez ključa vraća `401`, sva tri kontejnera koriste `restart: unless-stopped`, a dnevni PostgreSQL/vault/exchange backup je uspješno vraćen i provjeren u izolovanoj testnoj bazi. Nijedan račun nije poslat tokom deployment provjera.
+
+Javna provjera `https://fiscal.summasummarum.me/health` vraća `Healthy`. Početna ruta `/` trenutno očekivano vraća `404` jer je na domenu objavljen backend API, a ne korisnički web interfejs. Domen se kasnije može koristiti i kao ulaz u klijentski softver, ali tek nakon implementacije prijave korisnika, tenant izolacije, prava pristupa, korisničkog portala i eksplicitne potvrde prije fiskalizacije. API ključ sistemske integracije nije zamjena za korisničku prijavu.
 
 ## Sljedeći korak
 
-EF migracije za kupca, korektivni workflow i zvanični fiskalni broj primijenjene su na lokalnu razvojnu bazu. Sljedeći korak je izrada korisničkog portala; PDF/štampu pravi sajt prema [`WEBSITE_INVOICE_PDF_CONTRACT.md`](WEBSITE_INVOICE_PDF_CONTRACT.md). Svaki naredni produkcioni račun i dalje mora proći pregled nacrta i eksplicitnu potvrdu prije slanja.
+EF migracije za kupca, korektivni workflow i zvanični fiskalni broj primijenjene su na lokalnu razvojnu i produkcijsku bazu. Sljedeći korak je izrada korisničkog portala i serverske integracije u projektu `knjigovodstvoonline`; PDF/štampu pravi sajt prema [`WEBSITE_INVOICE_PDF_CONTRACT.md`](WEBSITE_INVOICE_PDF_CONTRACT.md). Svaki naredni produkcioni račun i dalje mora proći pregled nacrta i eksplicitnu potvrdu prije slanja.
 
 Za detalje pogledati:
 

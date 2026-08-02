@@ -7,6 +7,7 @@ Ovaj direktorijum sadrži operativnu, integracionu i izvornu dokumentaciju za Su
 1. [`CURRENT_STATE.md`](CURRENT_STATE.md) — šta je stvarno završeno, provjereno i aktivno.
 2. [`ROADMAP.md`](ROADMAP.md) — završene i preostale faze.
 3. [`PRODUCTION_PROFILE_AND_ENU.md`](PRODUCTION_PROFILE_AND_ENU.md) — trenutni produkcioni profil, `BankOnly` režim i registrovani ENU.
+4. [`../01_ARCHITECTURE/DEPLOYMENT.md`](../01_ARCHITECTURE/DEPLOYMENT.md) — produkcijska Docker/PostgreSQL/Nginx topologija i operativni status.
 
 ## Administracija i sigurnost
 
@@ -44,4 +45,4 @@ Cijeli `docs` folder može se kopirati u drugi projekat kao dokumentacioni paket
 6. `docs/MULTI_APP_TENANT_SECURITY.md`;
 7. ostale dokumente povezane sa konkretnim zadatkom.
 
-Kopirani paket predstavlja ugovor i stanje Fiscal API-ja na dan 02.08.2026. Fiskalnu XML/SOAP logiku ne treba kopirati u administrativni sajt: sajt je klijent Summa Fiscal API-ja. Kada se API ugovor kasnije promijeni, kopiju dokumentacije u projektu sajta treba ponovo sinhronizovati.
+Kopirani paket predstavlja ugovor i stanje Fiscal API-ja na dan 02.08.2026. Fiskalnu XML/SOAP logiku ne treba kopirati u administrativni sajt: sajt je klijent Summa Fiscal API-ja. Kada se API ugovor ili deployment status promijeni, kopiju dokumentacije u projektu sajta treba ponovo sinhronizovati.

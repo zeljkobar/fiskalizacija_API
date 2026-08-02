@@ -1,0 +1,16 @@
+.git
+.github
+.vs
+.idea
+**/bin
+**/obj
+**/TestResults
+local-secrets
+deploy/local-secrets
+deploy/backups
+deploy/data
+deploy/transfer
+App_Data
+*.pfx
+*.p12
+.env
