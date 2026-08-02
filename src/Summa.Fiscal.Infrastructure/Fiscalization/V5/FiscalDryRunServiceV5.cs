@@ -83,7 +83,7 @@ public sealed class FiscalDryRunServiceV5(
                 invoiceNumber,
                 input.InvoiceOrdinalNumber,
                 configuration.TcrCode,
-                true,
+                configuration.IsIssuerInVat,
                 input.NetAmount,
                 vatAmount,
                 total,

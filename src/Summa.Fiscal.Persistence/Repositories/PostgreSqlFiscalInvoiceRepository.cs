@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Summa.Fiscal.Application.Abstractions;
+using Summa.Fiscal.Application.Invoices;
 using Summa.Fiscal.Domain.Invoices;
 using Summa.Fiscal.Persistence.Entities;
 
@@ -26,6 +27,16 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
         return record is null ? null : ToDomain(record);
     }
 
+    public async Task<FiscalInvoice?> GetByOriginalInvoiceIdAsync(
+        Guid originalInvoiceId,
+        CancellationToken cancellationToken)
+    {
+        var record = await Query().SingleOrDefaultAsync(
+            x => x.OriginalInvoiceId == originalInvoiceId,
+            cancellationToken);
+        return record is null ? null : ToDomain(record);
+    }
+
     public async Task AddAsync(FiscalInvoice invoice, CancellationToken cancellationToken)
     {
         var record = ToRecord(invoice);
@@ -40,9 +51,20 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
                   { SqlState: PostgresErrorCodes.UniqueViolation })
         {
             dbContext.Entry(record).State = EntityState.Detached;
-            throw new InvalidOperationException(
-                "Račun sa istim identifikatorom ili idempotency ključem već postoji.",
-                exception);
+            var postgres = (PostgresException)exception.InnerException!;
+            if (string.Equals(
+                    postgres.ConstraintName,
+                    "IX_fiscal_invoices_OriginalInvoiceId",
+                    StringComparison.Ordinal))
+            {
+                throw new FiscalInvoiceOperationException(
+                    "STORNO_ALREADY_EXISTS",
+                    "Za originalni račun već postoji storno dokument.");
+            }
+
+            throw new FiscalInvoiceOperationException(
+                "INVOICE_CONFLICT",
+                "Račun sa istim identifikatorom ili idempotency ključem već postoji.");
         }
     }
 
@@ -52,14 +74,26 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
             .SingleOrDefaultAsync(x => x.Id == invoice.Id, cancellationToken)
             ?? throw new InvalidOperationException("Račun koji se ažurira ne postoji.");
 
-        record.Status = invoice.Status.ToString();
-        record.Iic = invoice.Iic;
-        record.IicSignature = invoice.IicSignature;
-        record.Jikr = invoice.Jikr;
-        record.QrCodeData = invoice.QrCodeData;
-        record.FiscalizedAt = invoice.FiscalizedAt;
-        record.UpdatedAt = invoice.UpdatedAt;
+        ApplyMutable(record, invoice);
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task CompleteCorrectiveAsync(
+        FiscalInvoice corrective,
+        FiscalInvoice original,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var correctiveRecord = await dbContext.FiscalInvoices.SingleAsync(
+            x => x.Id == corrective.Id,
+            cancellationToken);
+        var originalRecord = await dbContext.FiscalInvoices.SingleAsync(
+            x => x.Id == original.Id,
+            cancellationToken);
+        ApplyMutable(correctiveRecord, corrective);
+        ApplyMutable(originalRecord, original);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private IQueryable<FiscalInvoiceRecord> Query() =>
@@ -87,8 +121,24 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
             InvoiceType = invoice.InvoiceType.ToString(),
             InvoiceOrdinalNumber = ordinalNumber,
             InvoiceNumber = invoice.InvoiceNumber,
+            OfficialInvoiceNumber = invoice.OfficialInvoiceNumber,
             IssueDateTime = invoice.IssueDateTime.ToUniversalTime(),
+            SupplyPeriodStart = invoice.SupplyPeriodStart,
+            SupplyPeriodEnd = invoice.SupplyPeriodEnd,
+            PaymentDeadline = invoice.PaymentDeadline,
             Currency = invoice.Currency,
+            BuyerIdentificationType = invoice.Buyer?.IdentificationType.ToString(),
+            BuyerIdentificationNumber = invoice.Buyer?.IdentificationNumber,
+            BuyerName = invoice.Buyer?.Name,
+            BuyerAddress = invoice.Buyer?.Address,
+            BuyerTown = invoice.Buyer?.Town,
+            BuyerCountry = invoice.Buyer?.Country,
+            BuyerTaxIdentificationCode = invoice.Buyer?.TaxIdentificationCode,
+            OriginalInvoiceId = invoice.OriginalInvoiceId,
+            OriginalIic = invoice.OriginalIic,
+            OriginalIssueDateTime = invoice.OriginalIssueDateTime,
+            CorrectiveType = invoice.CorrectiveType?.ToString(),
+            CorrectionReason = invoice.CorrectionReason,
             NetAmount = invoice.TotalNetAmount,
             VatAmount = invoice.TotalVatAmount,
             TotalAmount = invoice.TotalGrossAmount,
@@ -144,6 +194,7 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
             record.OperatorId,
             Enum.Parse<InvoiceType>(record.InvoiceType),
             record.InvoiceNumber,
+            record.OfficialInvoiceNumber,
             record.IssueDateTime,
             record.Currency,
             record.IdempotencyKey,
@@ -155,6 +206,22 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
             record.CreatedAt,
             record.UpdatedAt,
             record.FiscalizedAt,
+            record.BuyerIdentificationType is null ? null : new FiscalBuyer(
+                Enum.Parse<BuyerIdentificationType>(record.BuyerIdentificationType),
+                record.BuyerIdentificationNumber!,
+                record.BuyerName!,
+                record.BuyerAddress,
+                record.BuyerTown,
+                record.BuyerCountry,
+                record.BuyerTaxIdentificationCode),
+            record.SupplyPeriodStart,
+            record.SupplyPeriodEnd,
+            record.PaymentDeadline,
+            record.OriginalInvoiceId,
+            record.OriginalIic,
+            record.OriginalIssueDateTime,
+            record.CorrectiveType is null ? null : Enum.Parse<CorrectiveInvoiceType>(record.CorrectiveType),
+            record.CorrectionReason,
             record.Items.OrderBy(x => x.LineNumber).Select(x => (
                 x.Id,
                 x.Name,
@@ -169,4 +236,16 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
                 Enum.Parse<PaymentType>(x.PaymentType),
                 x.Amount,
                 x.Reference)));
+
+    private static void ApplyMutable(FiscalInvoiceRecord record, FiscalInvoice invoice)
+    {
+        record.Status = invoice.Status.ToString();
+        record.Iic = invoice.Iic;
+        record.IicSignature = invoice.IicSignature;
+        record.Jikr = invoice.Jikr;
+        record.QrCodeData = invoice.QrCodeData;
+        record.OfficialInvoiceNumber = invoice.OfficialInvoiceNumber;
+        record.FiscalizedAt = invoice.FiscalizedAt;
+        record.UpdatedAt = invoice.UpdatedAt;
+    }
 }

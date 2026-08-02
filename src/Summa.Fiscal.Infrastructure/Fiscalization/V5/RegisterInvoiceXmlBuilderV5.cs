@@ -64,6 +64,24 @@ public sealed class RegisterInvoiceXmlBuilderV5 : IRegisterInvoiceXmlBuilderV5
         AddOptional(element, "TotVATAmt", FormatDecimal2(invoice.TotalVatAmount));
         AddOptional(element, "TotPriceToPay", FormatDecimal2(invoice.TotalPriceToPay));
         AddOptional(element, "IsReverseCharge", FormatBoolean(invoice.IsReverseCharge));
+        AddOptional(element, "PayDeadline", FormatDate(invoice.PaymentDeadline));
+
+        if (invoice.SupplyPeriod is not null)
+        {
+            element.Add(new XElement(
+                PuFiscalContractV5.Schema + "SupplyDateOrPeriod",
+                new XAttribute("Start", FormatDate(invoice.SupplyPeriod.Start)),
+                new XAttribute("End", FormatDate(invoice.SupplyPeriod.End))));
+        }
+
+        if (invoice.CorrectiveInvoice is not null)
+        {
+            element.Add(new XElement(
+                PuFiscalContractV5.Schema + "CorrectiveInv",
+                new XAttribute("IICRef", invoice.CorrectiveInvoice.OriginalIic),
+                new XAttribute("IssueDateTime", FormatDateTime(invoice.CorrectiveInvoice.OriginalIssueDateTime)),
+                new XAttribute("Type", invoice.CorrectiveInvoice.Type.ToXmlValue())));
+        }
 
         element.Add(BuildPayments(invoice.Payments));
         element.Add(BuildSeller(invoice.Seller));
@@ -174,6 +192,12 @@ public sealed class RegisterInvoiceXmlBuilderV5 : IRegisterInvoiceXmlBuilderV5
 
     private static string FormatDateTime(DateTimeOffset value) =>
         value.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture);
+
+    private static string FormatDate(DateOnly value) =>
+        value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static string? FormatDate(DateOnly? value) =>
+        value.HasValue ? FormatDate(value.Value) : null;
 
     private static string FormatDecimal2(decimal value) =>
         value.ToString("0.00", CultureInfo.InvariantCulture);

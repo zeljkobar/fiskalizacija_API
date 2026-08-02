@@ -55,6 +55,23 @@ public sealed class CompanyOnboardingController(
         return Ok(ApiResponse<CompanySummary>.Ok(result, CorrelationId()));
     }
 
+    [HttpPut("{companyId:guid}/fiscal-identity")]
+    [FiscalAdminAuthorize(FiscalApiPermissions.CompaniesWrite, "companyId")]
+    public async Task<IActionResult> UpdateFiscalIdentity(
+        Guid companyId,
+        [FromBody] CompanyFiscalIdentityCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (!Authorized()) return UnauthorizedResponse();
+        var result = await service.UpdateFiscalIdentityAsync(
+            companyId,
+            command,
+            Actor(),
+            CorrelationId(),
+            cancellationToken);
+        return Ok(ApiResponse<CompanySummary>.Ok(result, CorrelationId()));
+    }
+
     [HttpPost("{companyId:guid}/activate")]
     [FiscalAdminAuthorize(FiscalApiPermissions.CompaniesWrite, "companyId")]
     public Task<IActionResult> ActivateCompany(Guid companyId, CancellationToken cancellationToken) =>

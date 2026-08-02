@@ -11,8 +11,21 @@ public sealed record CreateFiscalInvoiceRequest(
     string InvoiceNumber,
     DateTimeOffset IssueDateTime,
     string Currency,
+    CreateFiscalBuyerRequest? Buyer,
+    DateOnly? SupplyPeriodStart,
+    DateOnly? SupplyPeriodEnd,
+    DateOnly? PaymentDeadline,
     IReadOnlyCollection<CreateFiscalInvoiceItemRequest>? Items,
     IReadOnlyCollection<CreateFiscalPaymentRequest>? Payments);
+
+public sealed record CreateFiscalBuyerRequest(
+    BuyerIdentificationType IdentificationType,
+    string IdentificationNumber,
+    string Name,
+    string? Address = null,
+    string? Town = null,
+    string? Country = null,
+    string? TaxIdentificationCode = null);
 
 public sealed record CreateFiscalInvoiceItemRequest(
     string Name,
@@ -27,3 +40,9 @@ public sealed record CreateFiscalPaymentRequest(
     PaymentType PaymentType,
     decimal Amount,
     string? Reference = null);
+
+public sealed record CreateStornoRequest(
+    string InvoiceNumber,
+    DateTimeOffset IssueDateTime,
+    string Reason,
+    string Confirmation);

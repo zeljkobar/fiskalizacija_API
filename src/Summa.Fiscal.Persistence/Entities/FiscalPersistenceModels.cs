@@ -166,8 +166,26 @@ public sealed class FiscalInvoiceRecord : FiscalRecord
     public string InvoiceType { get; set; } = string.Empty;
     public int InvoiceOrdinalNumber { get; set; }
     public string InvoiceNumber { get; set; } = string.Empty;
+    public string? OfficialInvoiceNumber { get; set; }
     public DateTimeOffset IssueDateTime { get; set; }
+    public DateOnly? SupplyPeriodStart { get; set; }
+    public DateOnly? SupplyPeriodEnd { get; set; }
+    public DateOnly? PaymentDeadline { get; set; }
     public string Currency { get; set; } = "EUR";
+    public string? BuyerIdentificationType { get; set; }
+    public string? BuyerIdentificationNumber { get; set; }
+    public string? BuyerName { get; set; }
+    public string? BuyerAddress { get; set; }
+    public string? BuyerTown { get; set; }
+    public string? BuyerCountry { get; set; }
+    public string? BuyerTaxIdentificationCode { get; set; }
+    public Guid? OriginalInvoiceId { get; set; }
+    public FiscalInvoiceRecord? OriginalInvoice { get; set; }
+    public ICollection<FiscalInvoiceRecord> Corrections { get; set; } = [];
+    public string? OriginalIic { get; set; }
+    public DateTimeOffset? OriginalIssueDateTime { get; set; }
+    public string? CorrectiveType { get; set; }
+    public string? CorrectionReason { get; set; }
     public decimal NetAmount { get; set; }
     public decimal VatAmount { get; set; }
     public decimal TotalAmount { get; set; }

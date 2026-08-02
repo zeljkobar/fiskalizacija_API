@@ -203,7 +203,19 @@ internal sealed class FiscalInvoiceConfiguration : FiscalRecordConfiguration<Fis
         b.ToTable("fiscal_invoices");
         b.Property(x => x.InvoiceType).HasMaxLength(30).IsRequired();
         b.Property(x => x.InvoiceNumber).HasMaxLength(100).IsRequired();
+        b.Property(x => x.OfficialInvoiceNumber).HasMaxLength(100);
+        b.HasIndex(x => x.OfficialInvoiceNumber).IsUnique().HasFilter("\"OfficialInvoiceNumber\" IS NOT NULL");
         b.Property(x => x.Currency).HasMaxLength(3).IsRequired();
+        b.Property(x => x.BuyerIdentificationType).HasMaxLength(20);
+        b.Property(x => x.BuyerIdentificationNumber).HasMaxLength(20);
+        b.Property(x => x.BuyerName).HasMaxLength(100);
+        b.Property(x => x.BuyerAddress).HasMaxLength(200);
+        b.Property(x => x.BuyerTown).HasMaxLength(100);
+        b.Property(x => x.BuyerCountry).HasMaxLength(3);
+        b.Property(x => x.BuyerTaxIdentificationCode).HasMaxLength(20);
+        b.Property(x => x.OriginalIic).HasMaxLength(32);
+        b.Property(x => x.CorrectiveType).HasMaxLength(30);
+        b.Property(x => x.CorrectionReason).HasMaxLength(500);
         b.Property(x => x.NetAmount).HasPrecision(18, 2);
         b.Property(x => x.VatAmount).HasPrecision(18, 2);
         b.Property(x => x.TotalAmount).HasPrecision(18, 2);
@@ -216,10 +228,13 @@ internal sealed class FiscalInvoiceConfiguration : FiscalRecordConfiguration<Fis
         b.HasIndex(x => new { x.CompanyId, x.IdempotencyKey }).IsUnique();
         b.HasIndex(x => x.Iic).IsUnique().HasFilter("\"Iic\" IS NOT NULL");
         b.HasIndex(x => x.Jikr).IsUnique().HasFilter("\"Jikr\" IS NOT NULL");
+        b.HasIndex(x => x.OriginalInvoiceId).IsUnique().HasFilter("\"OriginalInvoiceId\" IS NOT NULL");
         b.HasOne(x => x.Company).WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.BusinessUnit).WithMany().HasForeignKey(x => x.BusinessUnitId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.Device).WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.Operator).WithMany().HasForeignKey(x => x.OperatorId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.OriginalInvoice).WithMany(x => x.Corrections)
+            .HasForeignKey(x => x.OriginalInvoiceId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 

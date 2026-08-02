@@ -1,5 +1,7 @@
 # Produkcioni profil i ENU za bankovne račune
 
+**Status 02.08.2026:** produkcioni profil je konfigurisan, fiskalni sertifikat je aktivan u šifrovanom vaultu, ENU je uspješno registrovan kod PU i firma je u stanju `ProductionActive`. Prvi stvarni bezgotovinski produkcioni račun uspješno je fiskalizovan i dobio je JIKR.
+
 ## Razdvajanje okruženja
 
 Test i Production imaju odvojene fiskalne profile, poslovne jedinice, operatere i ENU uređaje. Aktivno okruženje firme određuje koji skup podataka fiskalni engine smije koristiti. Aktivacija ne prepisuje niti briše testne kodove.
@@ -17,6 +19,8 @@ U lokalnoj bazi su potvrđeni sljedeći SEP podaci:
 - poslovna jedinica: `fx318ob312`
 - operater: `zy624eg324`
 - politika plaćanja: `BankOnly`
+- adresa izdavaoca: `POPA DUKLJANINA 2`, Bar
+- PDV status: obveznik PDV-a (`IsVatPayer=true`), mapira se u `IsIssuerInVAT`
 
 Lični identifikacioni broj operatera se ne čuva jer nije potreban fiskalnom engine-u.
 
@@ -54,4 +58,10 @@ Aktivni sertifikat firme važi do 29.05.2027. Validacija traži PIB firme među 
 
 Kontrolni bezgotovinski račun od 1,21 EUR uspješno je fiskalizovan na testnom PU sistemu i workflow je potom prebacio firmu u `ProductionActive` stanje.
 
+Potvrđeni kontrolni dokaz sadrži testni JIKR `81c8ab9b-acc1-4c27-b10c-85f625b80dc7`. Produkcioni `RegisterTCR` poziv ima sačuvan exchange zapis i vratio je TCR kod `qb854nc171`. Ovi podaci služe za operativni trag; PFX, privatni ključ i lozinka nijesu u dokumentaciji niti Git-u.
+
 Nakon ENU registracije i kontrolisane Production aktivacije, prvi stvarni račun se prvo kreira kao nacrt i provjerava. Slanje Poreskoj upravi zahtijeva eksplicitnu potvrdu tačnih stavki, iznosa, PDV-a, kupca, bankovnog računa i datuma.
+
+## Šta još nije završeno
+
+Aktivan produkcioni fiskalni profil nije isto što i kompletan gotov sajt. Prije redovnog komercijalnog rada treba završiti produkcijski deployment API-ja, HTTPS i secret management, poslovnu numeraciju, PDF/štampu, monitoring, backup/restore i kontrolisani retry/offline tok. Prvi stvarni račun ostaje posebna, eksplicitno potvrđena operacija.

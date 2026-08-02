@@ -42,8 +42,10 @@ Ne pravi se samo POS program. Pravi se centralni fiskalni i računovodstveni mot
 SUMMA_FISCAL_PLATFORM/
 ├── README.md
 ├── AGENTS.md
-├── CURRENT_STATE.md
-├── ROADMAP.md
+├── docs/
+│   ├── CURRENT_STATE.md
+│   ├── ROADMAP.md
+│   └── README.md
 ├── 00_BLUEPRINT/
 ├── 01_ARCHITECTURE/
 ├── 02_FISCAL_ENGINE/
@@ -51,8 +53,7 @@ SUMMA_FISCAL_PLATFORM/
 ├── 04_BANK_ENGINE/
 ├── 05_OCR_ENGINE/
 ├── 06_HR_ENGINE/
-├── 07_AI_ENGINE/
-└── docs/
+└── 07_AI_ENGINE/
 ```
 
 ---
@@ -71,3 +72,8 @@ Napraviti stabilan, testiran i dokumentovan **Fiscal API** koji može:
 8. sačuvati sve zahtjeve, odgovore i greške;
 9. podržati retry i offline režim.
 
+## Trenutni status — 02.08.2026.
+
+Osnovni Fiscal API, kupac na računu, atomska numeracija, potpuni storno, testna i produkciona fiskalizacija, šifrovano upravljanje sertifikatom, granularna administracija, produkcioni profil i registracija produkcionog ENU-a su implementirani. Firma je u stanju `ProductionActive`, a prvi stvarni bezgotovinski račun uspješno je fiskalizovan 02.08.2026.
+
+Precizan pregled završenog rada, provjera i preostalih koraka nalazi se u [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md). Operativni plan je u [`docs/ROADMAP.md`](docs/ROADMAP.md), a indeks tehničkih dokumenata u [`docs/README.md`](docs/README.md).

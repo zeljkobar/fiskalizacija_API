@@ -36,6 +36,41 @@ public sealed class FiscalOnboardingService(
         return result;
     }
 
+    public async Task<CompanySummary> UpdateFiscalIdentityAsync(
+        Guid companyId,
+        CompanyFiscalIdentityCommand command,
+        string actor,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var existing = await GetCompanyAsync(companyId, cancellationToken);
+        RequireText(command.LegalName, "LEGAL_NAME_REQUIRED", "Pravni naziv firme je obavezan.");
+        RequireText(command.Country, "COUNTRY_REQUIRED", "Država firme je obavezna.");
+        var country = command.Country.Trim().ToUpperInvariant();
+        if (country.Length != 3 || !country.All(char.IsLetter))
+            throw new FiscalOnboardingException("COUNTRY_INVALID", "Država firme mora biti ISO 3166-1 alpha-3 kod.");
+
+        var expectedConfirmation = $"UPDATE_FISCAL_IDENTITY:{existing.Tin}:{companyId:D}";
+        if (!string.Equals(command.Confirmation, expectedConfirmation, StringComparison.Ordinal))
+            throw new FiscalOnboardingException(
+                "FISCAL_IDENTITY_CONFIRMATION_REQUIRED",
+                $"Za izmjenu fiskalnog identiteta confirmation mora biti {expectedConfirmation}.");
+
+        var result = await repository.UpdateFiscalIdentityAsync(companyId, command, cancellationToken);
+        await AuditAsync(
+            companyId,
+            "COMPANY_FISCAL_IDENTITY_UPDATED",
+            actor,
+            correlationId,
+            new
+            {
+                Before = new { existing.LegalName, existing.ShortName, existing.Address, existing.Town, existing.Country, existing.IsVatPayer },
+                After = new { result.LegalName, result.ShortName, result.Address, result.Town, result.Country, result.IsVatPayer }
+            },
+            cancellationToken);
+        return result;
+    }
+
     public async Task<CompanySummary> SetCompanyActiveAsync(Guid companyId, bool active, string actor, string correlationId, CancellationToken cancellationToken)
     {
         if (active) await EnsureConfigurationMutableAsync(companyId, cancellationToken);

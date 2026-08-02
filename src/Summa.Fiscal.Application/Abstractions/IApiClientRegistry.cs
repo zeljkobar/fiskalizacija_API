@@ -5,6 +5,7 @@ public static class FiscalApiPermissions
     public const string InvoicesCreate = "invoices:create";
     public const string InvoicesRead = "invoices:read";
     public const string InvoicesFiscalize = "invoices:fiscalize";
+    public const string InvoicesStorno = "invoices:storno";
     public const string ClientsAdmin = "clients:admin";
     public const string PlatformAdmin = "platform:admin";
     public const string CompaniesRead = "companies:read";
@@ -21,7 +22,7 @@ public static class FiscalApiPermissions
     public const string ActivationProduction = "activation:production";
 
     public static readonly IReadOnlySet<string> Allowed = new HashSet<string>(
-        [InvoicesCreate, InvoicesRead, InvoicesFiscalize, ClientsAdmin, PlatformAdmin,
+        [InvoicesCreate, InvoicesRead, InvoicesFiscalize, InvoicesStorno, ClientsAdmin, PlatformAdmin,
          CompaniesRead, CompaniesWrite, ConfigurationRead, ConfigurationWrite,
          CertificatesRead, CertificatesManage, AuditRead, AlertsRead, AlertsManage,
          ActivationRead, ActivationTest, ActivationProduction],

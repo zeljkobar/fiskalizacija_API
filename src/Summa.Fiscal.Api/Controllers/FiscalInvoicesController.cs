@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using Summa.Fiscal.Api.Contracts;
 using Summa.Fiscal.Api.Middleware;
 using Summa.Fiscal.Application.Invoices;
@@ -7,6 +8,7 @@ using Summa.Fiscal.Application.Abstractions;
 using Summa.Fiscal.Api.Security;
 using Summa.Fiscal.Domain.Invoices;
 using Summa.Fiscal.Infrastructure.Fiscalization.V5;
+using Summa.Fiscal.Application.Onboarding;
 
 namespace Summa.Fiscal.Api.Controllers;
 
@@ -17,7 +19,7 @@ public sealed class FiscalInvoicesController(
     IFiscalInvoiceApplicationService applicationService,
     IFiscalInvoiceSubmissionServiceV5 submissionService,
     IFiscalAccessAuthorizer accessAuthorizer,
-    IHostEnvironment hostEnvironment) : ControllerBase
+    IFiscalOnboardingService onboardingService) : ControllerBase
 {
     private const string IdempotencyHeader = "Idempotency-Key";
 
@@ -54,6 +56,17 @@ public sealed class FiscalInvoicesController(
             request.InvoiceNumber,
             request.IssueDateTime,
             request.Currency,
+            request.Buyer is null ? null : new CreateFiscalBuyer(
+                request.Buyer.IdentificationType,
+                request.Buyer.IdentificationNumber,
+                request.Buyer.Name,
+                request.Buyer.Address,
+                request.Buyer.Town,
+                request.Buyer.Country,
+                request.Buyer.TaxIdentificationCode),
+            request.SupplyPeriodStart,
+            request.SupplyPeriodEnd,
+            request.PaymentDeadline,
             (request.Items ?? [])
                 .Select(item => new CreateFiscalInvoiceItem(
                     item.Name,
@@ -71,7 +84,8 @@ public sealed class FiscalInvoicesController(
                     payment.Reference))
                 .ToArray(),
             idempotencyKey,
-            correlationId);
+            correlationId,
+            Actor());
 
         var result = await applicationService.CreateAsync(command, cancellationToken);
         return AcceptedAtAction(
@@ -120,6 +134,30 @@ public sealed class FiscalInvoicesController(
         }
 
         return Ok(ApiResponse<FiscalInvoiceStatusResult>.Ok(result, correlationId));
+    }
+
+    [HttpGet("{id:guid}/storno")]
+    [ProducesResponseType(typeof(ApiResponse<FiscalInvoiceResult>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStorno(Guid id, CancellationToken cancellationToken)
+    {
+        var correlationId = GetCorrelationId();
+        var original = await applicationService.GetAsync(id, cancellationToken);
+        if (original is null)
+        {
+            return NotFound(NotFoundResponse(correlationId));
+        }
+        if (!accessAuthorizer.HasAccess(User, FiscalApiPermissions.InvoicesRead, original.CompanyId))
+        {
+            return ForbiddenResponse(correlationId);
+        }
+
+        var storno = await applicationService.GetStornoForOriginalAsync(id, cancellationToken);
+        return storno is null
+            ? NotFound(ApiResponse<object>.Fail(
+                new("STORNO_NOT_FOUND", "Za ovaj račun još ne postoji storno dokument.", []),
+                correlationId))
+            : Ok(ApiResponse<FiscalInvoiceResult>.Ok(storno, correlationId));
     }
 
     [HttpGet("{id:guid}/qr")]
@@ -182,13 +220,18 @@ public sealed class FiscalInvoicesController(
             return ForbiddenResponse(correlationId);
         }
 
-        if (hostEnvironment.IsDevelopment() &&
-            !string.Equals(request.Confirmation, "SEND_TO_PU_TEST", StringComparison.Ordinal))
+        var company = await onboardingService.GetCompanyAsync(existing.CompanyId, cancellationToken);
+        var expectedConfirmation = string.Equals(company.Environment, "Production", StringComparison.Ordinal)
+            ? $"FISCALIZE_PRODUCTION:{company.Tin}:{id:D}"
+            : $"FISCALIZE_TEST:{id:D}";
+        if (!string.Equals(request.Confirmation, expectedConfirmation, StringComparison.Ordinal))
         {
             return BadRequest(ApiResponse<object>.Fail(
                 new(
-                    "TEST_SEND_CONFIRMATION_REQUIRED",
-                    "Za testno slanje confirmation mora biti SEND_TO_PU_TEST.",
+                    string.Equals(company.Environment, "Production", StringComparison.Ordinal)
+                        ? "PRODUCTION_FISCALIZATION_CONFIRMATION_REQUIRED"
+                        : "TEST_FISCALIZATION_CONFIRMATION_REQUIRED",
+                    $"Za slanje računa confirmation mora biti {expectedConfirmation}.",
                     []),
                 correlationId));
         }
@@ -202,9 +245,59 @@ public sealed class FiscalInvoicesController(
         return Ok(ApiResponse<FiscalInvoiceSubmissionResultV5>.Ok(result, correlationId));
     }
 
+    [HttpPost("{id:guid}/storno")]
+    [ProducesResponseType(typeof(ApiResponse<FiscalInvoiceResult>), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateStorno(
+        Guid id,
+        [FromBody] CreateStornoRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = GetCorrelationId();
+        var original = await applicationService.GetAsync(id, cancellationToken);
+        if (original is null)
+        {
+            return NotFound(NotFoundResponse(correlationId));
+        }
+        if (!accessAuthorizer.HasAccess(User, FiscalApiPermissions.InvoicesStorno, original.CompanyId))
+        {
+            return ForbiddenResponse(correlationId);
+        }
+
+        var idempotencyKey = Request.Headers[IdempotencyHeader].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 200)
+        {
+            return BadRequest(ApiResponse<object>.Fail(
+                new("IDEMPOTENCY_KEY_REQUIRED", $"Header {IdempotencyHeader} je obavezan i može imati najviše 200 znakova.", []),
+                correlationId));
+        }
+
+        var expectedConfirmation = $"CREATE_STORNO:{id:D}";
+        if (!string.Equals(request.Confirmation, expectedConfirmation, StringComparison.Ordinal))
+        {
+            return BadRequest(ApiResponse<object>.Fail(
+                new("STORNO_CONFIRMATION_REQUIRED", $"Za kreiranje storna confirmation mora biti {expectedConfirmation}.", []),
+                correlationId));
+        }
+
+        var result = await applicationService.CreateStornoAsync(
+            new(id, request.InvoiceNumber, request.IssueDateTime, request.Reason, idempotencyKey, correlationId, Actor()),
+            cancellationToken);
+        return AcceptedAtAction(nameof(GetById), new { id = result.Id }, ApiResponse<FiscalInvoiceResult>.Ok(result, correlationId));
+    }
+
     private string GetCorrelationId() =>
         HttpContext.Items[CorrelationIdMiddleware.ItemName]?.ToString()
         ?? HttpContext.TraceIdentifier;
+
+    private string Actor()
+    {
+        var clientId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown";
+        var clientName = User.Identity?.Name ?? "unknown";
+        return $"api-client:{clientId}:{clientName}";
+    }
 
     private static ApiResponse<object> NotFoundResponse(string correlationId)
     {

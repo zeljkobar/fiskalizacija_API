@@ -13,20 +13,19 @@ Za razvoj fiskalnog modula koriste se zvanični izvori Poreske uprave / gov.me:
 
 ## Važna napomena
 
-Ovaj repozitorijum trenutno sadrži razvojnu dokumentaciju. Za implementaciju XML/SOAP detalja obavezno je lokalno preuzeti zvanične DOCX/XSD/WSDL fajlove i staviti ih u:
+Repozitorijum sadrži lokalnu kopiju korišćene zvanične EFI v5 DOCX/XSD/WSDL dokumentacije u:
 
 ```text
-docs/official/pu/fiscalization/v5/
+docs/official_pu_v5/
 ```
 
-Predloženi fajlovi:
+Trenutno sačuvani izvori:
 
 ```text
-functional-spec-v5-final.docx
-technical-spec-v5-final.docx
-examples-v4-or-v5.docx
-xsd/
-wsdl/
+Fiskalni_servis_Funkcionalna_specifikacija_v5_final.docx
+Fiskalni_servis_Tehnicka_specifikacija_v5_final.docx
+FiscalService_v5_official.xsd
+FiscalService_v5_official.wsdl
 ```
 
 ## Pravilo za Codex

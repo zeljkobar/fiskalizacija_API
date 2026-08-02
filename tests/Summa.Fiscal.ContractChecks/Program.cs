@@ -2,6 +2,9 @@ using Summa.Fiscal.Infrastructure.Certificates;
 using Summa.Fiscal.Infrastructure.Fiscalization.V5;
 using Microsoft.Extensions.Options;
 using Summa.Fiscal.Application.Certificates;
+using Summa.Fiscal.Application.Invoices;
+using Summa.Fiscal.Domain.Invoices;
+using Summa.Fiscal.Infrastructure.Persistence;
 
 var schemaPath = FindOfficialSchema();
 var builder = new RegisterInvoiceXmlBuilderV5();
@@ -10,6 +13,10 @@ VerifySummaTestConfiguration();
 VerifySoapResponseParsing();
 VerifyRegisterTcrContract();
 VerifyQrCodeGeneration();
+VerifyFullStornoDomain();
+VerifyCorrectiveInvoiceContract();
+VerifyIssuerVatFlagMapping();
+await VerifyConcurrentInvoiceSequenceAsync();
 await VerifyEncryptedCertificateVaultAsync();
 await VerifyCertificateExpiryAlertsAsync();
 var structuralDocument = builder.BuildUnsigned(
@@ -214,6 +221,170 @@ static RegisterInvoiceRequestV5 CreateMinimalValidRequest(
             DocumentType: PuInvoiceDocumentTypeV5.Invoice,
             IsSimplifiedInvoice: false,
             IsReverseCharge: false));
+}
+
+static void VerifyFullStornoDomain()
+{
+    var issuedAt = new DateTimeOffset(2026, 8, 2, 10, 0, 0, TimeSpan.FromHours(2));
+    var original = new FiscalInvoice(
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        InvoiceType.Normal,
+        "fx318ob312/1/2026/enu-test",
+        issuedAt,
+        "EUR",
+        "original-test",
+        new FiscalBuyer(
+            BuyerIdentificationType.Tin,
+            "02825767",
+            "SUMMA SUMMARUM D.O.O",
+            "MAKEDONSKA B3",
+            "Bar",
+            "MNE"),
+        new DateOnly(2026, 8, 1),
+        new DateOnly(2026, 8, 1),
+        new DateOnly(2026, 8, 10));
+    original.AddItem(new FiscalInvoiceItem("Testna usluga", 1m, 121m, 21m, unitOfMeasure: "kom"));
+    original.AddPayment(new FiscalPayment(PaymentType.BankAccount, 121m, "TEST-REF"));
+    original.MarkValidated();
+    original.MarkReadyForFiscalization();
+    original.MarkFiscalizationPending(new string('A', 32), new string('B', 512));
+    original.MarkFiscalized("test-jikr", "fx318ob312/1/2026/enu-test");
+
+    var storno = FiscalInvoice.CreateFullStorno(
+        original,
+        "fx318ob312/2/2026/enu-test",
+        issuedAt.AddMinutes(5),
+        "storno-test",
+        "Poništenje testnog računa");
+    var validation = new FiscalInvoiceValidator().Validate(storno);
+
+    if (!validation.IsValid ||
+        storno.OriginalInvoiceId != original.Id ||
+        storno.OriginalIic != original.Iic ||
+        storno.TotalGrossAmount != -121m ||
+        storno.Items.Single().Quantity != -1m ||
+        storno.Payments.Single().Amount != -121m)
+    {
+        throw new InvalidOperationException(
+            "Potpuni storno nije kreirao validan negativni korektivni račun.");
+    }
+
+    Console.WriteLine("Domenski workflow potpunog storna je validan.");
+}
+
+static void VerifyCorrectiveInvoiceContract()
+{
+    var request = CreateMinimalValidRequest(new string('A', 32), new string('B', 512));
+    var corrected = request with
+    {
+        Invoice = request.Invoice with
+        {
+            TotalPriceWithoutVat = -100m,
+            TotalVatAmount = -21m,
+            TotalPrice = -121m,
+            Buyer = new(
+                PuIdTypeV5.Tin,
+                "12345678",
+                "PRIMJER KUPAC D.O.O.",
+                "Ulica 1",
+                "Podgorica",
+                "MNE"),
+            PaymentDeadline = new DateOnly(2026, 8, 10),
+            SupplyPeriod = new(new DateOnly(2026, 8, 1), new DateOnly(2026, 8, 1)),
+            CorrectiveInvoice = new(
+                new string('C', 32),
+                new DateTimeOffset(2026, 8, 2, 9, 0, 0, TimeSpan.FromHours(2)),
+                PuCorrectiveInvoiceTypeV5.Corrective),
+            Payments = [new(PuPaymentMethodV5.Account, -121m, BankAccount: "TEST-IBAN")],
+            Items =
+            [
+                new(
+                    "Storno testne usluge",
+                    "kom",
+                    -1m,
+                    100m,
+                    121m,
+                    -100m,
+                    -121m,
+                    VatRate: 21m,
+                    VatAmount: -21m)
+            ],
+            SameTaxes = [new(1, -100m, 21m, -21m)]
+        }
+    };
+    var document = new RegisterInvoiceXmlBuilderV5().BuildUnsigned(corrected);
+    var validation = new FiscalXmlSchemaValidatorV5(FindOfficialSchema()).Validate(document);
+    var correctiveElement = document.Root?
+        .Element(PuFiscalContractV5.Schema + "Invoice")?
+        .Element(PuFiscalContractV5.Schema + "CorrectiveInv");
+
+    if (!validation.IsValid ||
+        correctiveElement?.Attribute("IICRef")?.Value != new string('C', 32) ||
+        correctiveElement?.Attribute("Type")?.Value != "CORRECTIVE")
+    {
+        WriteErrors(validation);
+        throw new InvalidOperationException(
+            "Korektivni RegisterInvoiceRequest nije validan prema zvaničnom PU XSD-u.");
+    }
+
+    Console.WriteLine("Korektivni XML sa kupcem, rokovima i negativnim iznosima je XSD validan.");
+}
+
+static async Task VerifyConcurrentInvoiceSequenceAsync()
+{
+    var sequence = new InMemoryInvoiceNumberSequence();
+    var deviceId = Guid.NewGuid();
+    var reservations = await Task.WhenAll(
+        Enumerable.Range(0, 100).Select(_ =>
+            sequence.ReserveNextAsync(deviceId, 2026, CancellationToken.None)));
+
+    if (reservations.Distinct().Count() != 100 ||
+        reservations.Min() != 1 ||
+        reservations.Max() != 100)
+    {
+        throw new InvalidOperationException("Paralelna numeracija je proizvela duplikat ili preskočen broj.");
+    }
+
+    Console.WriteLine("Paralelna numeracija je rezervisala 100 jedinstvenih brojeva.");
+}
+
+static void VerifyIssuerVatFlagMapping()
+{
+    var request = CreateMinimalValidRequest(new string('A', 32), new string('B', 512));
+    var nonVatRequest = request with
+    {
+        Invoice = request.Invoice with
+        {
+            IsIssuerInVat = false,
+            TotalPriceWithoutVat = 121m,
+            TotalVatAmount = null,
+            Items =
+            [
+                new(
+                    "Usluga bez PDV-a",
+                    "kom",
+                    1m,
+                    121m,
+                    121m,
+                    121m,
+                    121m)
+            ],
+            SameTaxes = null
+        }
+    };
+    var document = new RegisterInvoiceXmlBuilderV5().BuildUnsigned(nonVatRequest);
+    var invoice = document.Root?.Element(PuFiscalContractV5.Schema + "Invoice");
+    var validation = new FiscalXmlSchemaValidatorV5(FindOfficialSchema()).Validate(document);
+    if (!validation.IsValid || invoice?.Attribute("IsIssuerInVAT")?.Value != "false")
+    {
+        WriteErrors(validation);
+        throw new InvalidOperationException("PDV status izdavaoca nije ispravno mapiran u PU XML.");
+    }
+
+    Console.WriteLine("PDV status izdavaoca se mapira iz konfiguracije u PU XML.");
 }
 
 static void VerifyQrCodeGeneration()

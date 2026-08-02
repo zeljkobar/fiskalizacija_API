@@ -15,6 +15,7 @@ public sealed class PuFiscalizationOptionsV5
     public string SellerAddress { get; init; } = string.Empty;
     public string SellerTown { get; init; } = string.Empty;
     public string SellerCountry { get; init; } = "MNE";
+    public bool IsIssuerInVat { get; init; } = true;
 
     public PuFiscalizationReadinessV5 GetReadiness()
     {

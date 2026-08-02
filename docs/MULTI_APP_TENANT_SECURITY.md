@@ -30,6 +30,7 @@ SHA-256 otisak, nikada čitljiv tajni ključ.
 - `invoices:create` — kreiranje računa u fiskalnom motoru;
 - `invoices:read` — čitanje računa, statusa i QR podatka;
 - `invoices:fiscalize` — slanje računa Poreskoj upravi;
+- `invoices:storno` — kreiranje kontrolisanog potpunog storna;
 - `platform:admin` — puni pristup svim firmama i administraciji;
 - `companies:read`, `companies:write` — pregled i upravljanje firmama;
 - `configuration:read`, `configuration:write` — poslovne jedinice, ENU i operateri;
@@ -39,7 +40,7 @@ SHA-256 otisak, nikada čitljiv tajni ključ.
 - `activation:read`, `activation:test`, `activation:production` — status, potvrda PU testa i kontrolisana produkcijska aktivacija;
 - `clients:admin` — upravljanje API klijentima.
 
-Tipičnom sajtu koji kreira i fiskalizuje račune dodjeljuju se prve tri dozvole.
+Tipičnom sajtu koji kreira, fiskalizuje i stornira račune dodjeljuju se prve četiri dozvole.
 
 ## Administrativni API
 
@@ -74,7 +75,8 @@ Primjer kreiranja aplikacije:
   "permissions": [
     "invoices:create",
     "invoices:read",
-    "invoices:fiscalize"
+    "invoices:fiscalize",
+    "invoices:storno"
   ],
   "companyIds": ["00000000-0000-0000-0000-000000000000"],
   "expiresAt": null

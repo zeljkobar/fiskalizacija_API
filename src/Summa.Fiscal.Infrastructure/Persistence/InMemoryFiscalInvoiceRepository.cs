@@ -32,6 +32,14 @@ public sealed class InMemoryFiscalInvoiceRepository : IFiscalInvoiceRepository
         return Task.FromResult<FiscalInvoice?>(null);
     }
 
+    public Task<FiscalInvoice?> GetByOriginalInvoiceIdAsync(
+        Guid originalInvoiceId,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(_invoices.Values.SingleOrDefault(x => x.OriginalInvoiceId == originalInvoiceId));
+    }
+
     public Task AddAsync(FiscalInvoice invoice, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -59,6 +67,19 @@ public sealed class InMemoryFiscalInvoiceRepository : IFiscalInvoiceRepository
         }
 
         _invoices[invoice.Id] = invoice;
+        return Task.CompletedTask;
+    }
+
+    public Task CompleteCorrectiveAsync(
+        FiscalInvoice corrective,
+        FiscalInvoice original,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_invoices.ContainsKey(corrective.Id) || !_invoices.ContainsKey(original.Id))
+            throw new InvalidOperationException("Originalni ili korektivni račun ne postoji.");
+        _invoices[corrective.Id] = corrective;
+        _invoices[original.Id] = original;
         return Task.CompletedTask;
     }
 }

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Summa.Fiscal.Persistence;
@@ -11,9 +12,11 @@ using Summa.Fiscal.Persistence;
 namespace Summa.Fiscal.Persistence.Migrations
 {
     [DbContext(typeof(SummaFiscalDbContext))]
-    partial class SummaFiscalDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802140712_UseAlpha3BuyerCountry")]
+    partial class UseAlpha3BuyerCountry
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -798,10 +801,6 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
-                    b.Property<string>("OfficialInvoiceNumber")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
                     b.Property<Guid>("OperatorId")
                         .HasColumnType("uuid");
 
@@ -860,10 +859,6 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.HasIndex("Jikr")
                         .IsUnique()
                         .HasFilter("\"Jikr\" IS NOT NULL");
-
-                    b.HasIndex("OfficialInvoiceNumber")
-                        .IsUnique()
-                        .HasFilter("\"OfficialInvoiceNumber\" IS NOT NULL");
 
                     b.HasIndex("OperatorId");
 

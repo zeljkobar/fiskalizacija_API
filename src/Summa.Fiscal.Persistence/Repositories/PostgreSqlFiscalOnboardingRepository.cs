@@ -50,6 +50,26 @@ public sealed class PostgreSqlFiscalOnboardingRepository(SummaFiscalDbContext db
         return Map(company);
     }
 
+    public async Task<CompanySummary> UpdateFiscalIdentityAsync(
+        Guid companyId,
+        CompanyFiscalIdentityCommand command,
+        CancellationToken cancellationToken)
+    {
+        var company = await dbContext.Companies
+            .Include(x => x.FiscalProfiles)
+            .SingleOrDefaultAsync(x => x.Id == companyId, cancellationToken)
+            ?? throw new FiscalOnboardingException("COMPANY_NOT_FOUND", "Firma ne postoji.");
+        company.LegalName = command.LegalName.Trim();
+        company.ShortName = NullIfWhiteSpace(command.ShortName);
+        company.Address = NullIfWhiteSpace(command.Address);
+        company.Town = NullIfWhiteSpace(command.Town);
+        company.Country = command.Country.Trim().ToUpperInvariant();
+        company.IsVatPayer = command.IsVatPayer;
+        company.UpdatedAt = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Map(company);
+    }
+
     public async Task<IReadOnlyCollection<CompanySummary>> ListCompaniesAsync(CancellationToken cancellationToken)
     {
         var records = await dbContext.Companies.AsNoTracking().Include(x => x.FiscalProfiles).OrderBy(x => x.LegalName).ToArrayAsync(cancellationToken);

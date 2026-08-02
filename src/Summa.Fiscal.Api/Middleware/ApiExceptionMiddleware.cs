@@ -18,6 +18,12 @@ public sealed class ApiExceptionMiddleware(
         {
             await WriteValidationErrorAsync(context, exception);
         }
+        catch (FiscalInvoiceOperationException exception)
+        {
+            var correlationId = GetCorrelationId(context);
+            await WriteAsync(context, exception.StatusCode, ApiResponse<object>.Fail(
+                new(exception.Code, exception.Message, []), correlationId));
+        }
         catch (FiscalOnboardingException exception)
         {
             var correlationId = GetCorrelationId(context);

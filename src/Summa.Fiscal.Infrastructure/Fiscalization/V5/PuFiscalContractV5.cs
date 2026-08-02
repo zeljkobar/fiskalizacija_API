@@ -78,6 +78,12 @@ public enum PuSubsequentDeliveryTypeV5
     BusinessNeeds
 }
 
+public enum PuCorrectiveInvoiceTypeV5
+{
+    Corrective,
+    ErrorCorrective
+}
+
 public enum PuVatExemptionV5
 {
     VatCl17,
@@ -155,6 +161,13 @@ internal static class PuFiscalLexicalValuesV5
         PuVatExemptionV5.VatCl28 => "VAT_CL28",
         PuVatExemptionV5.VatCl29 => "VAT_CL29",
         PuVatExemptionV5.VatCl30 => "VAT_CL30",
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value, null)
+    };
+
+    public static string ToXmlValue(this PuCorrectiveInvoiceTypeV5 value) => value switch
+    {
+        PuCorrectiveInvoiceTypeV5.Corrective => "CORRECTIVE",
+        PuCorrectiveInvoiceTypeV5.ErrorCorrective => "ERROR_CORRECTIVE",
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, null)
     };
 }

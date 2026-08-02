@@ -84,7 +84,7 @@ Sajt ne upravlja privatnim ključem osim kroz budući, posebno zaštićen admini
 
 ### 3.2. Autentifikacija između sajta i Fiscal API-ja
 
-Prije produkcije Fiscal API mora imati autentifikaciju. Dok se ona ne implementira, integracija se smatra isključivo razvojnom/testnom.
+Fiscal API ima implementirane API klijente, hashovane ključeve, granularne dozvole i tenant izolaciju. Produkcijski sajt mora ovu autentifikaciju koristiti isključivo sa svog backend-a; browser ne smije dobiti API ključ.
 
 Produkcioni zahtjevi:
 
@@ -97,13 +97,7 @@ Produkcioni zahtjevi:
 - greške ne smiju otkrivati lozinke, sertifikate, privatne ključeve ni kompletne interne putanje;
 - svaka fiskalna operacija mora imati audit trag.
 
-Preporučena produkciona autentifikacija između backend sistema:
-
-```text
-OAuth2 client credentials ili potpisani servisni JWT
-```
-
-Običan statički API ključ može se koristiti samo ako je dovoljno zaštićen, rotira se i vezan je za firmu i dozvole. Ne čuvati ga u browseru.
+Trenutni ugovor koristi zaglavlja `X-Fiscal-Client-Id` i `X-Fiscal-Api-Key`. Ključ se prikazuje samo prilikom kreiranja ili rotacije, a baza čuva njegov SHA-256 otisak. Svaki klijent je vezan za dozvole i dozvoljene firme. Detalji su u [`MULTI_APP_TENANT_SECURITY.md`](MULTI_APP_TENANT_SECURITY.md).
 
 ---
 
@@ -187,9 +181,21 @@ Primjer razvojnog zahtjeva:
   "deviceId": "33333333-3333-3333-3333-333333333333",
   "operatorId": "44444444-4444-4444-4444-444444444444",
   "invoiceType": "Normal",
-  "invoiceNumber": "110/ENU-summa/2026",
+  "invoiceNumber": "",
   "issueDateTime": "2026-07-31T12:00:00+02:00",
   "currency": "EUR",
+  "buyer": {
+    "identificationType": "Tin",
+    "identificationNumber": "12345678",
+    "name": "PRIMJER KUPAC D.O.O.",
+    "address": "Ulica 1",
+    "town": "Podgorica",
+    "country": "MNE",
+    "taxIdentificationCode": null
+  },
+  "supplyPeriodStart": "2026-07-31",
+  "supplyPeriodEnd": "2026-07-31",
+  "paymentDeadline": "2026-08-08",
   "items": [
     {
       "name": "Usluga",
@@ -211,9 +217,11 @@ Primjer razvojnog zahtjeva:
 }
 ```
 
-Važno: u trenutnom domenskom modelu `unitPrice` je **bruto jedinična cijena**, odnosno cijena sa PDV-om. Kod gornjeg primjera ukupan bruto iznos je `1.00`, a ne `1.21`.
+Važno: prazan `invoiceNumber` uključuje automatsko atomsko rezervisanje sljedećeg broja za izabrani ENU i godinu. `unitPrice` je **bruto jedinična cijena**, odnosno cijena sa PDV-om. Kod gornjeg primjera ukupan bruto iznos je `1.00`, a ne `1.21`.
 
-Podržane trenutne vrijednosti `invoiceType`:
+Za direktno kreiranje podržan je `Normal`. `Corrective` se kreira isključivo preko kontrolisanog storno endpointa; ostali tipovi se odbijaju dok njihov kompletan poslovni tok ne bude implementiran.
+
+Poznate vrijednosti `invoiceType`:
 
 ```text
 Normal
@@ -244,15 +252,23 @@ POST /api/v1/fiscal/invoices/{invoiceId}/fiscalize
 Content-Type: application/json
 ```
 
-Razvojno/testno tijelo:
+Testno tijelo (tačan ID računa ulazi u potvrdu):
 
 ```json
 {
-  "confirmation": "SEND_TO_PU_TEST"
+  "confirmation": "FISCALIZE_TEST:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 }
 ```
 
-`SEND_TO_PU_TEST` je zaštita razvojnog okruženja. Sajt je ne smije koristiti kao trajni produkcioni poslovni mehanizam. Produkciona potvrda i autorizacija biće posebno definisane.
+Produkcijsko tijelo koristi strožu potvrdu vezanu za PIB i račun:
+
+```json
+{
+  "confirmation": "FISCALIZE_PRODUCTION:02825767:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+}
+```
+
+Produkcijska potvrda mora nastati tek poslije prikaza i eksplicitnog odobrenja konačnog nacrta.
 
 ### 5.4. Čitanje računa
 
@@ -266,6 +282,33 @@ GET /api/v1/fiscal/invoices/{invoiceId}
 GET /api/v1/fiscal/invoices/{invoiceId}/status
 ```
 
+### 5.6. Kreiranje potpunog storna
+
+Storno se može napraviti samo za račun koji već ima IKOF i JIKR. Kreiranje ne šalje dokument PU; prvo nastaje zaključani korektivni nacrt.
+
+```http
+POST /api/v1/fiscal/invoices/{originalInvoiceId}/storno
+Content-Type: application/json
+Idempotency-Key: stabilan-kljuc-storna
+```
+
+```json
+{
+  "invoiceNumber": "",
+  "issueDateTime": "2026-08-02T15:00:00+02:00",
+  "reason": "Poništenje pogrešno izdatog računa",
+  "confirmation": "CREATE_STORNO:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+}
+```
+
+Dobijeni ID korektivnog računa fiskalizuje se istim `/fiscalize` endpointom i produkcijskom potvrdom vezanom za njegov ID. Original dobija `StornoCreated` tek poslije uspješnog JIKR-a korektivnog računa.
+
+Veza se čita putem:
+
+```http
+GET /api/v1/fiscal/invoices/{originalInvoiceId}/storno
+```
+
 ---
 
 ## 6. Obavezna pravila forme računa
@@ -277,7 +320,8 @@ Forma na sajtu mora obezbijediti:
 - ENU;
 - operatera;
 - tip računa;
-- broj računa;
+- automatski broj računa (ručni unos ne nuditi korisniku);
+- kupca kada je potreban za poslovni dokument;
 - datum i vrijeme izdavanja;
 - valutu EUR;
 - najmanje jednu stavku;
@@ -308,6 +352,8 @@ Kod neslaganja, korisniku prikazati jasnu poruku i ne slati račun PU.
 ## 7. Numeracija računa
 
 Sajt ne smije dozvoliti ručno i nekontrolisano generisanje rednog broja.
+
+Fiscal API sada atomski rezerviše broj po ENU-u i godini kada dobije prazan `invoiceNumber`. Sajt treba da koristi taj režim i sačuva vraćeni broj.
 
 Potrebno je:
 
@@ -573,13 +619,17 @@ Nakon statusa `Fiscalized`:
 
 Ne koristiti hard delete za fiskalne dokumente.
 
-Storno, korektivni i avansni račun nijesu obične izmjene postojećeg reda. Oni su posebni dokumenti sa vezom ka originalu i moraju se implementirati prema Fiscal API ugovoru.
+Potpuni storno je implementiran kao poseban `Corrective` dokument sa negativnim stavkama i plaćanjem, te obaveznom vezom ka originalnom IKOF-u i datumu. Djelimične korekcije, `ERROR_CORRECTIVE` i avansni račun ostaju posebni budući workflow-i i ne smiju se simulirati izmjenom originala.
 
 ---
 
 ## 16. PDF i QR kod
 
+PDF i štampu generiše administrativni sajt, ne Fiscal API. Potpuni ugovor je u [`WEBSITE_INVOICE_PDF_CONTRACT.md`](WEBSITE_INVOICE_PDF_CONTRACT.md).
+
 Konačni račun mora koristiti fiskalne podatke vraćene iz Fiscal API-ja:
+
+- `officialInvoiceNumber` kao puni broj za prikaz i štampu;
 
 - IKOF/IIC;
 - JIKR;
@@ -773,28 +823,31 @@ Ne pokretati testove koji šalju PU pri svakom običnom build-u ili CI testu. On
 
 ## 23. Produkcioni uslovi prije puštanja sajta
 
-Integracija nije spremna za produkciju dok nijesu potvrđene sve stavke:
+Status backend-a i preostalih obaveza sajta:
 
-- [ ] Fiscal API autentifikacija i autorizacija;
-- [ ] tenant izolacija;
-- [ ] bezbjedno čuvanje sertifikata;
+- [x] Fiscal API autentifikacija i autorizacija;
+- [x] tenant izolacija;
+- [x] bezbjedno čuvanje sertifikata u šifrovanom Fiscal API vaultu;
 - [ ] HTTPS između svih komponenti;
-- [ ] produkcioni PU endpoint i produkcioni sertifikat;
-- [ ] automatska i konkurentno bezbjedna numeracija;
+- [x] produkcioni PU endpoint, aktivni sertifikat i registrovani ENU;
+- [x] automatska i konkurentno bezbjedna backend numeracija po ENU-u i godini;
 - [x] QR verifikacioni URL po zvaničnoj specifikaciji;
 - [ ] konačni PDF/štampa računa;
 - [ ] stabilan retry mehanizam;
 - [ ] zvanično usklađen offline/naknadni tok;
-- [ ] storno i korektivni računi;
+- [x] potpuni storno/korektivni backend workflow;
+- [ ] korisnički ekran i pregled/potvrda storna na sajtu;
+- [ ] djelimične korekcije i `ERROR_CORRECTIVE`;
 - [ ] avansni računi ako ih sajt nudi;
-- [ ] audit;
-- [ ] monitoring i alarmi;
+- [x] trajni fiskalni i administratorski audit;
+- [x] trajni alertovi i background provjera isteka sertifikata;
+- [ ] produkcijski monitoring i kanal isporuke alerta;
 - [ ] backup i provjeren restore;
-- [ ] zaštita od duplog slanja;
+- [x] idempotency zaštita od duplog kreiranja/slanja po firmi;
 - [ ] test svih podržanih načina plaćanja;
-- [ ] provjera prava korisnika;
-- [ ] razdvojeni testni i produkcioni podaci;
-- [ ] dokumentovana procedura zamjene/isteka sertifikata;
+- [x] provjera prava API klijenta i pristupa firmi;
+- [x] razdvojeni testni i produkcioni fiskalni podaci;
+- [x] dokumentovana procedura zamjene/isteka sertifikata;
 - [ ] pravna i računovodstvena provjera izgleda konačnog računa.
 
 ---
@@ -821,6 +874,16 @@ JIKR:          3c99825c-9dd4-45b5-a03e-8ac65a5d16ec
 ```
 
 Ovo dokazuje osnovni tehnički tok, ali ne znači da su svi produkcioni scenariji iz kontrolne liste završeni.
+
+Dana **02.08.2026.** izvršen je novi kontrolisani onboarding dokaz:
+
+- bezgotovinski račun od 1,21 EUR uspješno je fiskalizovan na testnom PU sistemu;
+- dobijen je testni JIKR `81c8ab9b-acc1-4c27-b10c-85f625b80dc7`;
+- potvrda testa je vezana za hash aktivne fiskalne konfiguracije;
+- produkcioni ENU je registrovan kroz potpisani `RegisterTCR` i PU je vratio `qb854nc171`;
+- firma je nakon provjera prebačena u `ProductionActive` stanje.
+
+Ovaj rezultat je naknadno potvrđen i prvim stvarnim produkcionim računom: bezgotovinski račun od 121,00 EUR uspješno je fiskalizovan 02.08.2026, dobio je IKOF/JIKR i QR URL, a kompletna request/response razmjena je trajno sačuvana. Svaki naredni račun i dalje mora biti zasebna, eksplicitno potvrđena operacija.
 
 ---
 

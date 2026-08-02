@@ -7,10 +7,13 @@ Ovaj fajl je obavezan početni dokument za svaki AI agent koji radi na projektu.
 Prije pisanja koda, agent mora pročitati:
 
 1. `README.md`
-2. `00_BLUEPRINT/00_SUMMA_BLUEPRINT.md`
-3. `01_ARCHITECTURE/SYSTEM_ARCHITECTURE.md`
-4. `01_ARCHITECTURE/API_STANDARD.md`
-5. odgovarajući modul u kojem radi
+2. `docs/README.md`
+3. `docs/CURRENT_STATE.md`
+4. `docs/ROADMAP.md`
+5. `00_BLUEPRINT/00_SUMMA_BLUEPRINT.md`
+6. `01_ARCHITECTURE/SYSTEM_ARCHITECTURE.md`
+7. `01_ARCHITECTURE/API_STANDARD.md`
+8. odgovarajući modul u kojem radi
 
 ## Stil implementacije
 
@@ -39,4 +42,3 @@ Prije pisanja koda, agent mora pročitati:
 3. Audit i trag svake operacije.
 4. Stabilnost i mogućnost oporavka nakon greške.
 5. Čist i održiv kod.
-

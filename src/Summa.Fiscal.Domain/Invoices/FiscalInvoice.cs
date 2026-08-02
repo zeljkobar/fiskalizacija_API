@@ -14,7 +14,16 @@ public sealed class FiscalInvoice
         string invoiceNumber,
         DateTimeOffset issueDateTime,
         string currency,
-        string idempotencyKey)
+        string idempotencyKey,
+        FiscalBuyer? buyer = null,
+        DateOnly? supplyPeriodStart = null,
+        DateOnly? supplyPeriodEnd = null,
+        DateOnly? paymentDeadline = null,
+        Guid? originalInvoiceId = null,
+        string? originalIic = null,
+        DateTimeOffset? originalIssueDateTime = null,
+        CorrectiveInvoiceType? correctiveType = null,
+        string? correctionReason = null)
     {
         Id = Guid.NewGuid();
         CompanyId = companyId;
@@ -26,6 +35,15 @@ public sealed class FiscalInvoice
         IssueDateTime = issueDateTime;
         Currency = currency?.Trim().ToUpperInvariant() ?? string.Empty;
         IdempotencyKey = idempotencyKey;
+        Buyer = buyer;
+        SupplyPeriodStart = supplyPeriodStart;
+        SupplyPeriodEnd = supplyPeriodEnd;
+        PaymentDeadline = paymentDeadline;
+        OriginalInvoiceId = originalInvoiceId;
+        OriginalIic = originalIic;
+        OriginalIssueDateTime = originalIssueDateTime;
+        CorrectiveType = correctiveType;
+        CorrectionReason = string.IsNullOrWhiteSpace(correctionReason) ? null : correctionReason.Trim();
         Status = FiscalStatus.Draft;
         CreatedAt = DateTimeOffset.UtcNow;
         UpdatedAt = CreatedAt;
@@ -37,10 +55,20 @@ public sealed class FiscalInvoice
     public Guid DeviceId { get; }
     public Guid OperatorId { get; }
     public InvoiceType InvoiceType { get; }
-    public string InvoiceNumber { get; }
+    public string InvoiceNumber { get; private set; }
+    public string? OfficialInvoiceNumber { get; private set; }
     public DateTimeOffset IssueDateTime { get; }
     public string Currency { get; }
     public string IdempotencyKey { get; }
+    public FiscalBuyer? Buyer { get; }
+    public DateOnly? SupplyPeriodStart { get; }
+    public DateOnly? SupplyPeriodEnd { get; }
+    public DateOnly? PaymentDeadline { get; }
+    public Guid? OriginalInvoiceId { get; }
+    public string? OriginalIic { get; }
+    public DateTimeOffset? OriginalIssueDateTime { get; }
+    public CorrectiveInvoiceType? CorrectiveType { get; }
+    public string? CorrectionReason { get; }
     public FiscalStatus Status { get; private set; }
     public decimal TotalNetAmount { get; private set; }
     public decimal TotalVatAmount { get; private set; }
@@ -63,6 +91,7 @@ public sealed class FiscalInvoice
         Guid operatorId,
         InvoiceType invoiceType,
         string invoiceNumber,
+        string? officialInvoiceNumber,
         DateTimeOffset issueDateTime,
         string currency,
         string idempotencyKey,
@@ -74,6 +103,15 @@ public sealed class FiscalInvoice
         DateTimeOffset createdAt,
         DateTimeOffset updatedAt,
         DateTimeOffset? fiscalizedAt,
+        FiscalBuyer? buyer,
+        DateOnly? supplyPeriodStart,
+        DateOnly? supplyPeriodEnd,
+        DateOnly? paymentDeadline,
+        Guid? originalInvoiceId,
+        string? originalIic,
+        DateTimeOffset? originalIssueDateTime,
+        CorrectiveInvoiceType? correctiveType,
+        string? correctionReason,
         IEnumerable<(Guid Id, string Name, decimal Quantity, decimal UnitPrice,
             decimal VatRate, string? ItemCode, string? UnitOfMeasure, decimal DiscountAmount)> items,
         IEnumerable<(Guid Id, PaymentType PaymentType, decimal Amount, string? Reference)> payments)
@@ -87,9 +125,19 @@ public sealed class FiscalInvoice
             invoiceNumber,
             issueDateTime,
             currency,
-            idempotencyKey)
+            idempotencyKey,
+            buyer,
+            supplyPeriodStart,
+            supplyPeriodEnd,
+            paymentDeadline,
+            originalInvoiceId,
+            originalIic,
+            originalIssueDateTime,
+            correctiveType,
+            correctionReason)
         {
             Id = id,
+            OfficialInvoiceNumber = officialInvoiceNumber,
             Status = FiscalStatus.Draft,
             Iic = iic,
             IicSignature = iicSignature,
@@ -128,6 +176,68 @@ public sealed class FiscalInvoice
         return invoice;
     }
 
+    public static FiscalInvoice CreateFullStorno(
+        FiscalInvoice original,
+        string invoiceNumber,
+        DateTimeOffset issueDateTime,
+        string idempotencyKey,
+        string reason)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+        if (original.Status != FiscalStatus.Fiscalized ||
+            string.IsNullOrWhiteSpace(original.Iic) ||
+            string.IsNullOrWhiteSpace(original.Jikr))
+        {
+            throw new InvalidOperationException("Samo uspješno fiskalizovan račun može biti storniran.");
+        }
+        if (original.InvoiceType == InvoiceType.Corrective)
+        {
+            throw new InvalidOperationException("Korektivni račun se ne može stornirati ovim workflow-om.");
+        }
+
+        var storno = new FiscalInvoice(
+            original.CompanyId,
+            original.BusinessUnitId,
+            original.DeviceId,
+            original.OperatorId,
+            InvoiceType.Corrective,
+            invoiceNumber,
+            issueDateTime,
+            original.Currency,
+            idempotencyKey,
+            original.Buyer,
+            original.SupplyPeriodStart,
+            original.SupplyPeriodEnd,
+            original.PaymentDeadline,
+            original.Id,
+            original.Iic,
+            original.IssueDateTime,
+            CorrectiveInvoiceType.Corrective,
+            reason);
+
+        foreach (var item in original.Items)
+        {
+            storno.AddItem(new FiscalInvoiceItem(
+                item.Name,
+                -item.Quantity,
+                item.UnitPrice,
+                item.VatRate,
+                item.ItemCode,
+                item.UnitOfMeasure,
+                -item.DiscountAmount));
+        }
+
+        foreach (var payment in original.Payments)
+        {
+            storno.AddPayment(new FiscalPayment(
+                payment.PaymentType,
+                -payment.Amount,
+                payment.Reference));
+        }
+
+        return storno;
+    }
+
     public void MarkFiscalizationPending(string iic, string iicSignature)
     {
         if (Status is not (FiscalStatus.ReadyForFiscalization or FiscalStatus.FiscalizationFailed))
@@ -145,7 +255,10 @@ public sealed class FiscalInvoice
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
-    public void MarkFiscalized(string jikr, string? qrCodeData = null)
+    public void MarkFiscalized(
+        string jikr,
+        string officialInvoiceNumber,
+        string? qrCodeData = null)
     {
         if (Status != FiscalStatus.FiscalizationPending)
         {
@@ -155,10 +268,23 @@ public sealed class FiscalInvoice
         Jikr = string.IsNullOrWhiteSpace(jikr)
             ? throw new ArgumentException("JIKR je obavezan.", nameof(jikr))
             : jikr;
+        OfficialInvoiceNumber = string.IsNullOrWhiteSpace(officialInvoiceNumber)
+            ? throw new ArgumentException("Zvanični fiskalni broj je obavezan.", nameof(officialInvoiceNumber))
+            : officialInvoiceNumber.Trim();
         QrCodeData = qrCodeData;
         Status = FiscalStatus.Fiscalized;
         FiscalizedAt = DateTimeOffset.UtcNow;
         UpdatedAt = FiscalizedAt.Value;
+    }
+
+    public void SetOfficialInvoiceNumber(string officialInvoiceNumber)
+    {
+        if (Status is not (FiscalStatus.Fiscalized or FiscalStatus.StornoCreated))
+            throw new InvalidOperationException("Zvanični broj se može dopuniti samo fiskalizovanom dokumentu.");
+        OfficialInvoiceNumber = string.IsNullOrWhiteSpace(officialInvoiceNumber)
+            ? throw new ArgumentException("Zvanični fiskalni broj je obavezan.", nameof(officialInvoiceNumber))
+            : officialInvoiceNumber.Trim();
+        UpdatedAt = DateTimeOffset.UtcNow;
     }
 
     public void SetQrCodeData(string qrCodeData)
@@ -186,6 +312,17 @@ public sealed class FiscalInvoice
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
+    public void MarkStornoCreated()
+    {
+        if (Status != FiscalStatus.Fiscalized || InvoiceType == InvoiceType.Corrective)
+        {
+            throw new InvalidOperationException("Samo originalni fiskalizovani račun može biti označen kao storniran.");
+        }
+
+        Status = FiscalStatus.StornoCreated;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
     public void AddItem(FiscalInvoiceItem item)
     {
         EnsureDraft();
@@ -197,6 +334,15 @@ public sealed class FiscalInvoice
     {
         EnsureDraft();
         _payments.Add(payment ?? throw new ArgumentNullException(nameof(payment)));
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    public void AssignInvoiceNumber(string invoiceNumber)
+    {
+        EnsureDraft();
+        InvoiceNumber = string.IsNullOrWhiteSpace(invoiceNumber)
+            ? throw new ArgumentException("Broj računa je obavezan.", nameof(invoiceNumber))
+            : invoiceNumber.Trim();
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 

@@ -9,6 +9,13 @@ public interface IFiscalInvoiceRepository
         Guid companyId,
         string idempotencyKey,
         CancellationToken cancellationToken);
+    Task<FiscalInvoice?> GetByOriginalInvoiceIdAsync(
+        Guid originalInvoiceId,
+        CancellationToken cancellationToken);
     Task AddAsync(FiscalInvoice invoice, CancellationToken cancellationToken);
     Task UpdateAsync(FiscalInvoice invoice, CancellationToken cancellationToken);
+    Task CompleteCorrectiveAsync(
+        FiscalInvoice corrective,
+        FiscalInvoice original,
+        CancellationToken cancellationToken);
 }

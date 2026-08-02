@@ -13,6 +13,15 @@ public sealed record CompanyOnboardingCommand(
     string SoftwareCode,
     string MaintainerCode);
 
+public sealed record CompanyFiscalIdentityCommand(
+    string LegalName,
+    string? ShortName,
+    string? Address,
+    string? Town,
+    string Country,
+    bool IsVatPayer,
+    string Confirmation);
+
 public sealed record BusinessUnitCommand(string Code, string Name, string? Address, string? Town);
 
 public sealed record FiscalDeviceCommand(Guid BusinessUnitId, string TcrCode, string InternalCode);

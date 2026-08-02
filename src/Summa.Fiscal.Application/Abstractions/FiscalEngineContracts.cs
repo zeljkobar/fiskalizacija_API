@@ -37,6 +37,8 @@ public sealed record PuFiscalResponse(bool IsSuccess, string? Jikr, string? Erro
 public sealed record AuditEntry(
     string Action,
     Guid? InvoiceId,
+    Guid? CompanyId,
     string CorrelationId,
+    string Actor,
     DateTimeOffset OccurredAt,
     IReadOnlyDictionary<string, string?> Data);

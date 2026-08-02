@@ -246,6 +246,7 @@ Rute:
 GET   /api/v1/admin/companies
 GET   /api/v1/admin/companies/{companyId}
 PUT   /api/v1/admin/companies/{companyId}
+PUT   /api/v1/admin/companies/{companyId}/fiscal-identity
 POST  /api/v1/admin/companies/{companyId}/activate
 POST  /api/v1/admin/companies/{companyId}/deactivate
 ```
@@ -725,12 +726,14 @@ Live test prema PU ne pripada standardnom CI procesu i mora zahtijevati eksplici
 
 ## 17. Backend poslovi koje treba završiti prije pune administracije
 
-Prioritetni redosljed u Fiscal API projektu:
+Osnovni administratorski backend, granularna autorizacija, tenant izolacija, audit, upozorenja, odvojeni profili i kontrolisana produkciona aktivacija su implementirani. Preostali infrastrukturni poslovi prije redovnog produkcionog rada su:
 
 1. OpenAPI/Swagger ugovor i automatski contract testovi.
 2. Kanal isporuke alertova (e-mail i/ili notifikacija sajta) sa retry pravilima.
+3. Produkcijski deployment iza HTTPS-a, secret manager i provjeren backup/restore.
+4. Implementacija stvarnog administratorskog interfejsa na sajtu.
 
-Sajt sada može implementirati kompletno listanje, unos, izmjenu i soft-deaktivaciju osnovne fiskalne konfiguracije uz granularne dozvole i tenant izolaciju. Preostale stavke su potrebne za produkcionu aktivaciju i monitoring.
+Sajt sada može implementirati kompletno listanje, unos, izmjenu i soft-deaktivaciju fiskalne konfiguracije uz granularne dozvole i tenant izolaciju. Produkciona aktivacija backend-a je provjerena; monitoring i korisnički interfejs ostaju za narednu fazu.
 
 ---
 
@@ -738,18 +741,20 @@ Sajt sada može implementirati kompletno listanje, unos, izmjenu i soft-deaktiva
 
 Administratorski modul je spreman za produkciju tek kada:
 
-- [ ] sve rute označene kao `NEDOSTAJE` budu implementirane ili eksplicitno izbačene iz poslovnog opsega;
+- [x] sve trenutno ugovorene administratorske rute budu implementirane;
 - [x] admin autentifikacija bude granularna i audit bilježi aplikaciju i stvarnog korisnika;
 - [x] tenant izolacija bude testirana;
-- [ ] testno i produkciono okruženje budu jasno razdvojeni;
-- [ ] sertifikat i lozinka nikada ne završe u bazi/logovima sajta;
+- [x] testno i produkciono okruženje budu jasno razdvojeni u Fiscal API-ju;
+- [x] sertifikat i lozinka budu zaštićeni u Fiscal API-ju i ne završe u Git-u ili običnom tekstu;
 - [ ] glavni vault ključ ima zaštićen backup i proceduru oporavka;
 - [x] readiness i produkciona aktivacija budu odvojeni koraci;
 - [x] postoje trajni alarmi i background provjera za istek sertifikata;
-- [ ] audit se može pregledati, ali ne brisati;
-- [ ] kontrolisani PU test prođe za firmu;
-- [ ] svi endpointi imaju strukturisane greške i correlation ID;
-- [ ] dokument bude ažuriran stvarnim provjerenim request/response primjerima.
+- [x] audit se može pregledati, ali ne brisati;
+- [x] kontrolisani PU test prođe za firmu;
+- [x] svi administratorski endpointi imaju strukturisane greške i correlation ID;
+- [x] dokument bude ažuriran stvarnim provjerenim statusom produkcionog profila i ENU-a;
+- [ ] administratorski UI sajta bude implementiran i testiran;
+- [ ] produkcijski HTTPS deployment, monitoring i backup/restore budu provjereni.
 
 ---
 

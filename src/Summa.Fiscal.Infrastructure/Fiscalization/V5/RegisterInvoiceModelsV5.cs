@@ -32,7 +32,17 @@ public sealed record PuInvoiceV5(
     bool? IsSimplifiedInvoice = null,
     bool? IsReverseCharge = null,
     decimal? TotalPriceToPay = null,
-    PuBuyerV5? Buyer = null);
+    PuBuyerV5? Buyer = null,
+    DateOnly? PaymentDeadline = null,
+    PuSupplyPeriodV5? SupplyPeriod = null,
+    PuCorrectiveInvoiceV5? CorrectiveInvoice = null);
+
+public sealed record PuSupplyPeriodV5(DateOnly Start, DateOnly End);
+
+public sealed record PuCorrectiveInvoiceV5(
+    string OriginalIic,
+    DateTimeOffset OriginalIssueDateTime,
+    PuCorrectiveInvoiceTypeV5 Type);
 
 public sealed record PuSellerV5(
     PuIdTypeV5 IdType,

@@ -4,6 +4,7 @@ public interface IFiscalOnboardingRepository
 {
     Task<CompanySummary> UpsertCompanyAsync(CompanyOnboardingCommand command, CancellationToken cancellationToken);
     Task<CompanySummary> UpdateCompanyAsync(Guid companyId, CompanyOnboardingCommand command, CancellationToken cancellationToken);
+    Task<CompanySummary> UpdateFiscalIdentityAsync(Guid companyId, CompanyFiscalIdentityCommand command, CancellationToken cancellationToken);
     Task<IReadOnlyCollection<CompanySummary>> ListCompaniesAsync(CancellationToken cancellationToken);
     Task<CompanySummary?> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken);
     Task<CompanySummary?> GetCompanyByTinAsync(string tin, CancellationToken cancellationToken);
@@ -56,6 +57,7 @@ public interface IFiscalOnboardingService
     Task<IReadOnlyCollection<CompanySummary>> ListCompaniesAsync(CancellationToken cancellationToken);
     Task<CompanySummary> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken);
     Task<CompanySummary> UpdateCompanyAsync(Guid companyId, CompanyOnboardingCommand command, string actor, string correlationId, CancellationToken cancellationToken);
+    Task<CompanySummary> UpdateFiscalIdentityAsync(Guid companyId, CompanyFiscalIdentityCommand command, string actor, string correlationId, CancellationToken cancellationToken);
     Task<CompanySummary> SetCompanyActiveAsync(Guid companyId, bool active, string actor, string correlationId, CancellationToken cancellationToken);
     Task<ProductionProfileSummary> ConfigureProductionAsync(Guid companyId, ProductionProfileCommand command, string actor, string correlationId, CancellationToken cancellationToken);
     Task<ProductionProfileSummary> GetProductionProfileAsync(Guid companyId, CancellationToken cancellationToken);

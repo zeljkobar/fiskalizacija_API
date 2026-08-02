@@ -64,11 +64,15 @@ if (usePostgreSql)
     builder.Services.AddScoped<IFiscalOnboardingRepository, PostgreSqlFiscalOnboardingRepository>();
     builder.Services.AddScoped<ICertificateExpiryRepository, PostgreSqlCertificateExpiryRepository>();
     builder.Services.AddScoped<IFiscalActivationRepository, PostgreSqlFiscalActivationRepository>();
+    builder.Services.AddScoped<IAuditService, PostgreSqlAuditService>();
+    builder.Services.AddScoped<IInvoiceNumberSequence, PostgreSqlInvoiceNumberSequence>();
 }
 else
 {
     builder.Services.AddSingleton<IFiscalInvoiceRepository, InMemoryFiscalInvoiceRepository>();
     builder.Services.AddSingleton<IApiClientRegistry, UnavailableApiClientRegistry>();
+    builder.Services.AddSingleton<IAuditService, InMemoryAuditService>();
+    builder.Services.AddSingleton<IInvoiceNumberSequence, InMemoryInvoiceNumberSequence>();
 }
 builder.Services.Configure<ApiAccessOptions>(
     builder.Configuration.GetSection(ApiAccessOptions.SectionName));
@@ -88,7 +92,6 @@ builder.Services.Configure<FiscalCertificateVaultOptions>(
     builder.Configuration.GetSection(FiscalCertificateVaultOptions.SectionName));
 builder.Services.Configure<FiscalExchangeStorageOptionsV5>(
     builder.Configuration.GetSection(FiscalExchangeStorageOptionsV5.SectionName));
-builder.Services.AddSingleton<IAuditService, InMemoryAuditService>();
 builder.Services.AddSingleton<IFiscalInvoiceValidator, FiscalInvoiceValidator>();
 builder.Services.AddScoped<IFiscalInvoiceApplicationService, FiscalInvoiceApplicationService>();
 builder.Services.AddScoped<IFiscalOnboardingService, FiscalOnboardingService>();

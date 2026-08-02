@@ -35,8 +35,13 @@ POST /api/v1/admin/companies
 GET  /api/v1/admin/companies
 GET  /api/v1/admin/companies/{companyId}
 PUT  /api/v1/admin/companies/{companyId}
+PUT  /api/v1/admin/companies/{companyId}/fiscal-identity
+PUT  /api/v1/admin/companies/{companyId}/fiscal-identity
 POST /api/v1/admin/companies/{companyId}/activate
 POST /api/v1/admin/companies/{companyId}/deactivate
+GET  /api/v1/admin/companies/{companyId}/production-profile
+PUT  /api/v1/admin/companies/{companyId}/production-profile
+POST /api/v1/admin/companies/{companyId}/production-profile/register-enu
 POST /api/v1/admin/companies/{companyId}/business-units
 GET  /api/v1/admin/companies/{companyId}/business-units
 GET  /api/v1/admin/companies/{companyId}/business-units/{businessUnitId}
@@ -95,6 +100,8 @@ Onboarding prihvata samo `Test` okruženje. Produkcija se ne može uključiti ob
 7. Produkcijski endpoint dolazi isključivo iz serverske vrijednosti `Fiscalization:Activation:ProductionEndpoint`.
 8. Dok je produkcija aktivna, fiskalna konfiguracija je zaključana. Povratak zahtijeva `confirmation: "RETURN_TO_TEST:<PIB>"` i poništava prethodni test.
 
-Detalji produkcionog profila, `BankOnly` zaštite i ENU registracije su u `docs/PRODUCTION_PROFILE_AND_ENU.md`.
+Detalji produkcionog profila, `BankOnly` zaštite i ENU registracije su u [`PRODUCTION_PROFILE_AND_ENU.md`](PRODUCTION_PROFILE_AND_ENU.md).
+
+Za firmu PIB `02825767` ovaj workflow je stvarno završen 02.08.2026: kontrolni testni račun dobio je JIKR, produkcioni ENU je registrovan kroz `RegisterTCR`, a aktivacioni status je `ProductionActive`. Nijedan stvarni produkcioni račun još nije poslat.
 
 Ostale activation dozvole su `activation:read` i `activation:test`. Sve promjene ostavljaju audit događaje.
