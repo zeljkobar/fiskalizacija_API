@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+repo_dir="$(cd "$(dirname "$script_path")/.." && pwd)"
 deploy_dir="$repo_dir/deploy"
 compose_file="$deploy_dir/compose.production.yml"
 env_file="$deploy_dir/.env"
