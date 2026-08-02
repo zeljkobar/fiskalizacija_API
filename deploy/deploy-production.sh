@@ -24,7 +24,7 @@ test -d "$deploy_dir/local-secrets" || { echo "Nedostaje local-secrets direktori
 test -d "$deploy_dir/data" || { echo "Nedostaje data direktorijum" >&2; exit 1; }
 test -d "$deploy_dir/backups" || { echo "Nedostaje backups direktorijum" >&2; exit 1; }
 
-exec 9>"$deploy_dir/.deploy.lock"
+exec 9>"/tmp/summa-fiscal-production-deploy.lock"
 flock -n 9 || { echo "Drugi SUMMA deployment je već u toku." >&2; exit 1; }
 
 if [ "$(git branch --show-current)" != "main" ]; then
