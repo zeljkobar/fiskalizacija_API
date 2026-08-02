@@ -28,6 +28,13 @@ while true; do
     echo "Backup completed: $target"
   else
     echo "Database backup failed; incomplete backup retained at $temporary" >&2
+    if [ "${BACKUP_ONCE:-0}" = "1" ]; then
+      exit 1
+    fi
+  fi
+
+  if [ "${BACKUP_ONCE:-0}" = "1" ]; then
+    exit 0
   fi
 
   sleep 86400

@@ -8,6 +8,8 @@ PostgreSQL se ne pokreće u Dockeru i port `5432` se ne otvara internetu. Fiskal
 
 Javni health endpoint je `https://fiscal.summasummarum.me/health`. Početna ruta `/` trenutno nema HTML aplikaciju i očekivano vraća `404`. Budući klijentski portal može koristiti isti domen ili `knjigovodstvo.summasummarum.me`, ali browser ne smije direktno dobiti sistemski API ključ: portal mora pozivati Fiscal API preko svoje serverske komponente i provjeravati korisnika, firmu i dozvole.
 
+Redovna ažuriranja izvode se skriptom `deploy/deploy-production.sh`. Skripta radi isključivo sa čistom `main` granom i fast-forward promjenama sa GitHuba, pravi backup prije promjene, ponovo gradi API/Worker image-e, pokreće servise i potvrđuje lokalni health. Ažuriranje kontejnera ne mijenja Git-ignorisane tajne, certificate vault, fiskalne razmjene ni backup direktorijum.
+
 ## 2. Opšta preporuka
 
 - Linux VPS

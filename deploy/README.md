@@ -149,6 +149,22 @@ Najmanje jednom mjesečno uraditi restore probu u izolovanoj testnoj bazi. Tokom
 
 Svi servisi koriste `restart: unless-stopped`, pa se automatski pokreću nakon restarta Docker daemon-a/servera. Prije ažuriranja provjeriti najnoviji backup, zatim:
 
+Server mora biti Git repozitorijum na čistoj `main` grani, povezan sa `origin`. Uobičajeni deployment se zatim pokreće jednom komandom iz bilo kog direktorijuma:
+
+```bash
+/home/deploy/apps/summa-fiscal/deploy/deploy-production.sh
+```
+
+Skripta zaključava paralelna pokretanja, odbija prljav Git direktorijum i non-fast-forward promjenu, pravi neposredni backup baze/vaulta/razmjena, povlači samo `origin/main`, provjerava Compose, gradi API i Worker, pokreće sva tri servisa i čeka lokalni `/health`. Ne poziva nijedan fiskalizacioni ili drugi PU endpoint.
+
+Prije prvog korišćenja dati skripti execute dozvolu:
+
+```bash
+chmod 750 deploy/deploy-production.sh
+```
+
+Ručni postupak za dijagnostiku ostaje:
+
 ```bash
 docker compose --env-file .env -f compose.production.yml build
 docker compose --env-file .env -f compose.production.yml up -d
