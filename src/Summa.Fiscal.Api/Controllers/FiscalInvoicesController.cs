@@ -245,6 +245,55 @@ public sealed class FiscalInvoicesController(
         return Ok(ApiResponse<FiscalInvoiceSubmissionResultV5>.Ok(result, correlationId));
     }
 
+    [HttpPost("{id:guid}/recover-fiscal-exchange")]
+    [ProducesResponseType(
+        typeof(ApiResponse<FiscalInvoiceSubmissionResultV5>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RecoverFiscalExchange(
+        Guid id,
+        [FromBody] RecoverFiscalExchangeRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = GetCorrelationId();
+        var existing = await applicationService.GetAsync(id, cancellationToken);
+        if (existing is null)
+        {
+            return NotFound(NotFoundResponse(correlationId));
+        }
+        if (!accessAuthorizer.HasAccess(
+                User,
+                FiscalApiPermissions.InvoicesFiscalize,
+                existing.CompanyId))
+        {
+            return ForbiddenResponse(correlationId);
+        }
+
+        var expectedConfirmation =
+            $"RECOVER_FISCAL_EXCHANGE:{id:D}:{request.ExchangeId:D}";
+        if (!string.Equals(request.Confirmation, expectedConfirmation, StringComparison.Ordinal))
+        {
+            return BadRequest(ApiResponse<object>.Fail(
+                new(
+                    "FISCAL_EXCHANGE_RECOVERY_CONFIRMATION_REQUIRED",
+                    $"Za oporavak confirmation mora biti {expectedConfirmation}.",
+                    []),
+                correlationId));
+        }
+
+        var result = await submissionService.RecoverAsync(
+            id,
+            request.ExchangeId,
+            correlationId,
+            Actor(),
+            cancellationToken);
+        return result is null
+            ? NotFound(NotFoundResponse(correlationId))
+            : Ok(ApiResponse<FiscalInvoiceSubmissionResultV5>.Ok(result, correlationId));
+    }
+
     [HttpPost("{id:guid}/storno")]
     [ProducesResponseType(typeof(ApiResponse<FiscalInvoiceResult>), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -319,6 +368,10 @@ public sealed class FiscalInvoicesController(
 }
 
 public sealed record FiscalizeStoredInvoiceRequest(string Confirmation);
+
+public sealed record RecoverFiscalExchangeRequest(
+    Guid ExchangeId,
+    string Confirmation);
 
 public sealed record FiscalInvoiceQrResult(
     Guid InvoiceId,

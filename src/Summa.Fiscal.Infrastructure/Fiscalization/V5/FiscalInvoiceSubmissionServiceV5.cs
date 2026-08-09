@@ -25,6 +25,13 @@ public interface IFiscalInvoiceSubmissionServiceV5
         Guid invoiceId,
         string correlationId,
         CancellationToken cancellationToken);
+
+    Task<FiscalInvoiceSubmissionResultV5?> RecoverAsync(
+        Guid invoiceId,
+        Guid exchangeId,
+        string correlationId,
+        string actor,
+        CancellationToken cancellationToken);
 }
 
 public sealed class FiscalInvoiceSubmissionServiceV5(
@@ -48,6 +55,37 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
         if (invoice is null)
         {
             return null;
+        }
+
+        if (invoice.Status is FiscalStatus.FiscalizationFailed or FiscalStatus.FiscalizationPending &&
+            !string.IsNullOrWhiteSpace(invoice.Iic))
+        {
+            var successfulExchanges = await exchangeStore.FindSuccessfulInvoicesByIicAsync(
+                invoice.Iic,
+                cancellationToken);
+            if (successfulExchanges.Count == 1)
+            {
+                return await RecoverAsync(
+                    invoice.Id,
+                    successfulExchanges.Single().ExchangeId,
+                    correlationId,
+                    "fiscalization-engine:automatic-recovery",
+                    cancellationToken);
+            }
+            if (successfulExchanges.Count > 1)
+            {
+                throw new FiscalInvoiceOperationException(
+                    "FISCAL_RECOVERY_EXCHANGE_AMBIGUOUS",
+                    "Pronađeno je više uspješnih PU odgovora za isti IKOF. " +
+                    "Novo slanje je blokirano; oporavak mora navesti tačan exchange ID.");
+            }
+            if (invoice.Status == FiscalStatus.FiscalizationPending)
+            {
+                throw new FiscalInvoiceOperationException(
+                    "FISCALIZATION_OUTCOME_UNKNOWN",
+                    "Račun je ostao u slanju, a uspješan PU odgovor nije pronađen. " +
+                    "Novo slanje je blokirano dok se prethodni pokušaj ručno ne provjeri.");
+            }
         }
 
         var fiscalContext = await onboardingService.ResolveContextAsync(
@@ -253,20 +291,237 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
         }
     }
 
-    private static PuFiscalizationOptionsV5 BuildConfiguration(CompanyFiscalContext context) => new()
+    public async Task<FiscalInvoiceSubmissionResultV5?> RecoverAsync(
+        Guid invoiceId,
+        Guid exchangeId,
+        string correlationId,
+        string actor,
+        CancellationToken cancellationToken)
     {
-        Environment = context.Company.Environment,
-        Endpoint = context.Company.Endpoint,
-        IssuerTin = context.Company.Tin,
-        BusinessUnitCode = context.BusinessUnit.Code,
-        TcrCode = context.Device.TcrCode ?? throw new InvalidOperationException("ENU nije registrovan kod Poreske uprave."),
-        SoftwareCode = context.Company.SoftwareCode,
-        OperatorCode = context.Operator.OperatorCode,
-        SellerName = context.Company.LegalName,
-        SellerAddress = context.Company.Address ?? context.BusinessUnit.Address ?? string.Empty,
-        SellerTown = context.Company.Town ?? context.BusinessUnit.Town ?? string.Empty,
-        SellerCountry = context.Company.Country,
-        IsIssuerInVat = context.Company.IsVatPayer
+        var invoice = await repository.GetByIdAsync(invoiceId, cancellationToken);
+        if (invoice is null)
+        {
+            return null;
+        }
+
+        var evidence = await exchangeStore.ReadSuccessfulInvoiceAsync(
+            exchangeId,
+            cancellationToken)
+            ?? throw new FiscalInvoiceOperationException(
+                "SUCCESSFUL_FISCAL_EXCHANGE_NOT_FOUND",
+                "Navedena fiskalna razmjena nema cjelovit uspješan PU odgovor.",
+                404);
+        var response = responseParser.Parse(evidence.ResponseXml);
+        if (!response.IsSuccess || string.IsNullOrWhiteSpace(response.Fic))
+        {
+            throw new FiscalInvoiceOperationException(
+                "FISCAL_EXCHANGE_NOT_SUCCESSFUL",
+                "Navedena fiskalna razmjena ne sadrži uspješan FIC/JIKR.");
+        }
+
+        var configuration = await BuildRecoveryConfigurationAsync(
+            invoice,
+            cancellationToken);
+        configuration.EnsureReadyForInvoice();
+        var ordinalNumber = ReadOrdinalNumber(invoice.InvoiceNumber);
+        var issueDateTime = ToMontenegroTime(invoice.IssueDateTime);
+        var officialInvoiceNumber =
+            $"{configuration.BusinessUnitCode}/{ordinalNumber}/{issueDateTime.Year}/{configuration.TcrCode}";
+        ValidateRecoveryEvidence(
+            invoice,
+            configuration,
+            evidence,
+            response,
+            officialInvoiceNumber);
+
+        if (invoice.Status is FiscalStatus.Fiscalized or FiscalStatus.StornoCreated)
+        {
+            if (!string.Equals(invoice.Jikr, response.Fic, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new FiscalInvoiceOperationException(
+                    "FISCAL_RECOVERY_JIKR_CONFLICT",
+                    "Račun je već završen sa drugim JIKR-om.");
+            }
+
+            return new(
+                invoice.Id,
+                evidence.ExchangeId,
+                evidence.HttpStatusCode,
+                true,
+                invoice.OfficialInvoiceNumber ?? officialInvoiceNumber,
+                invoice.Iic!,
+                invoice.Jikr,
+                invoice.QrCodeData,
+                invoice.Status,
+                null,
+                null);
+        }
+
+        if (invoice.Status is not (FiscalStatus.FiscalizationPending or FiscalStatus.FiscalizationFailed))
+        {
+            throw new FiscalInvoiceOperationException(
+                "INVOICE_NOT_RECOVERABLE",
+                "Račun nije u statusu koji dozvoljava oporavak iz fiskalne razmjene.");
+        }
+        if (invoice.Status == FiscalStatus.FiscalizationFailed)
+        {
+            invoice.MarkFiscalizationPending(
+                invoice.Iic!,
+                invoice.IicSignature
+                ?? throw new FiscalInvoiceOperationException(
+                    "FISCAL_RECOVERY_IIC_SIGNATURE_MISSING",
+                    "Sačuvani račun nema IKOF potpis potreban za oporavak."));
+        }
+
+        var qrCodeData = GenerateQrCodeData(
+            invoice,
+            configuration,
+            issueDateTime,
+            ordinalNumber);
+        invoice.MarkFiscalized(
+            response.Fic,
+            officialInvoiceNumber,
+            qrCodeData,
+            response.SendDateTime ?? evidence.ReceivedAt);
+
+        if (invoice.OriginalInvoiceId is { } originalInvoiceId)
+        {
+            var original = await repository.GetByIdAsync(originalInvoiceId, cancellationToken)
+                ?? throw new FiscalInvoiceOperationException(
+                    "ORIGINAL_INVOICE_NOT_FOUND",
+                    "Originalni račun korektivnog dokumenta nije pronađen.",
+                    404);
+            original.MarkStornoCreated();
+            await repository.CompleteCorrectiveAsync(invoice, original, cancellationToken);
+        }
+        else
+        {
+            await repository.UpdateAsync(invoice, cancellationToken);
+        }
+
+        await auditService.RecordAsync(
+            new(
+                "FISCAL_INVOICE_RECOVERED_FROM_EXCHANGE",
+                invoice.Id,
+                invoice.CompanyId,
+                correlationId,
+                actor,
+                DateTimeOffset.UtcNow,
+                new Dictionary<string, string?>
+                {
+                    ["exchangeId"] = evidence.ExchangeId.ToString(),
+                    ["exchangeCorrelationId"] = evidence.CorrelationId,
+                    ["invoiceNumber"] = officialInvoiceNumber,
+                    ["iic"] = invoice.Iic,
+                    ["jikr"] = response.Fic,
+                    ["originalInvoiceId"] = invoice.OriginalInvoiceId?.ToString()
+                }),
+            cancellationToken);
+
+        return new(
+            invoice.Id,
+            evidence.ExchangeId,
+            evidence.HttpStatusCode,
+            true,
+            officialInvoiceNumber,
+            invoice.Iic!,
+            response.Fic,
+            invoice.QrCodeData,
+            invoice.Status,
+            null,
+            null);
+    }
+
+    private async Task<PuFiscalizationOptionsV5> BuildRecoveryConfigurationAsync(
+        FiscalInvoice invoice,
+        CancellationToken cancellationToken)
+    {
+        var companyTask = onboardingService.GetCompanyAsync(
+            invoice.CompanyId,
+            cancellationToken);
+        var businessUnitTask = onboardingService.GetBusinessUnitAsync(
+            invoice.CompanyId,
+            invoice.BusinessUnitId,
+            cancellationToken);
+        var deviceTask = onboardingService.GetDeviceAsync(
+            invoice.CompanyId,
+            invoice.DeviceId,
+            cancellationToken);
+        var operatorTask = onboardingService.GetOperatorAsync(
+            invoice.CompanyId,
+            invoice.OperatorId,
+            cancellationToken);
+        await Task.WhenAll(companyTask, businessUnitTask, deviceTask, operatorTask);
+
+        var businessUnit = await businessUnitTask;
+        var device = await deviceTask;
+        if (device.BusinessUnitId != businessUnit.Id)
+        {
+            throw new FiscalInvoiceOperationException(
+                "FISCAL_RECOVERY_CONTEXT_MISMATCH",
+                "ENU fiskalne razmjene nije povezan sa poslovnom jedinicom računa.");
+        }
+
+        return BuildConfiguration(
+            await companyTask,
+            businessUnit,
+            device,
+            await operatorTask);
+    }
+
+    private static void ValidateRecoveryEvidence(
+        FiscalInvoice invoice,
+        PuFiscalizationOptionsV5 configuration,
+        FiscalInvoiceExchangeEvidenceV5 evidence,
+        RegisterInvoiceResponseV5 response,
+        string officialInvoiceNumber)
+    {
+        if (!string.Equals(
+                evidence.SoapAction,
+                PuFiscalContractV5.RegisterInvoiceSoapAction,
+                StringComparison.Ordinal) ||
+            Uri.Compare(
+                evidence.Endpoint,
+                new Uri(configuration.Endpoint),
+                UriComponents.AbsoluteUri,
+                UriFormat.SafeUnescaped,
+                StringComparison.OrdinalIgnoreCase) != 0 ||
+            !string.Equals(evidence.Iic, invoice.Iic, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(evidence.InvoiceNumber, officialInvoiceNumber, StringComparison.Ordinal) ||
+            evidence.TotalPrice != invoice.TotalGrossAmount ||
+            response.RequestUuid != evidence.RequestUuid)
+        {
+            throw new FiscalInvoiceOperationException(
+                "FISCAL_RECOVERY_EVIDENCE_MISMATCH",
+                "Sačuvani PU odgovor ne pripada navedenom računu ili aktivnom fiskalnom profilu.");
+        }
+    }
+
+    private static PuFiscalizationOptionsV5 BuildConfiguration(CompanyFiscalContext context) =>
+        BuildConfiguration(
+            context.Company,
+            context.BusinessUnit,
+            context.Device,
+            context.Operator);
+
+    private static PuFiscalizationOptionsV5 BuildConfiguration(
+        CompanySummary company,
+        BusinessUnitSummary businessUnit,
+        FiscalDeviceSummary device,
+        FiscalOperatorSummary fiscalOperator) => new()
+    {
+        Environment = company.Environment,
+        Endpoint = company.Endpoint,
+        IssuerTin = company.Tin,
+        BusinessUnitCode = businessUnit.Code,
+        TcrCode = device.TcrCode ?? throw new InvalidOperationException("ENU nije registrovan kod Poreske uprave."),
+        SoftwareCode = company.SoftwareCode,
+        OperatorCode = fiscalOperator.OperatorCode,
+        SellerName = company.LegalName,
+        SellerAddress = company.Address ?? businessUnit.Address ?? string.Empty,
+        SellerTown = company.Town ?? businessUnit.Town ?? string.Empty,
+        SellerCountry = company.Country,
+        IsIssuerInVat = company.IsVatPayer
     };
 
     private string GenerateQrCodeData(

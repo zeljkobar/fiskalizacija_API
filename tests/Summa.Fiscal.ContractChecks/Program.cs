@@ -13,6 +13,7 @@ VerifySummaTestConfiguration();
 VerifySoapResponseParsing();
 VerifyRegisterTcrContract();
 VerifyQrCodeGeneration();
+await VerifyStoredSuccessfulExchangeRecoveryAsync();
 VerifyFullStornoDomain();
 VerifyCorrectiveInvoiceContract();
 VerifyIssuerVatFlagMapping();
@@ -251,7 +252,16 @@ static void VerifyFullStornoDomain()
     original.MarkValidated();
     original.MarkReadyForFiscalization();
     original.MarkFiscalizationPending(new string('A', 32), new string('B', 512));
-    original.MarkFiscalized("test-jikr", "fx318ob312/1/2026/enu-test");
+    original.MarkFiscalized(
+        "test-jikr",
+        "fx318ob312/1/2026/enu-test",
+        fiscalizedAt: issuedAt);
+
+    if (original.FiscalizedAt?.Offset != TimeSpan.Zero)
+    {
+        throw new InvalidOperationException(
+            "Vrijeme fiskalizacije iz PU odgovora nije normalizovano na UTC.");
+    }
 
     var storno = FiscalInvoice.CreateFullStorno(
         original,
@@ -412,7 +422,132 @@ static void VerifyQrCodeGeneration()
             $"QR URL nije jednak zvaničnom PU primjeru. Dobijeno: {actual}");
     }
 
+    var corrective = generator.GenerateVerificationUrl(new(
+        "Test",
+        "FF34905809F8B5B8D51D87AC98217BF1",
+        "02825767",
+        new DateTimeOffset(2026, 8, 9, 21, 30, 29, TimeSpan.FromHours(2)),
+        18,
+        "oo940dt107",
+        "wx860oc926",
+        "zm955pb829",
+        -242.00m));
+    if (!corrective.EndsWith("&prc=242.00", StringComparison.Ordinal) ||
+        corrective.Contains("prc=-242.00", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            $"QR URL korektivnog računa nema apsolutni prc=242.00. Dobijeno: {corrective}");
+    }
+
     Console.WriteLine("QR URL je identičan zvaničnom PU v5 primjeru.");
+    Console.WriteLine("QR URL storna od -242,00 koristi prc=242.00.");
+}
+
+static async Task VerifyStoredSuccessfulExchangeRecoveryAsync()
+{
+    var root = Path.Combine(
+        Path.GetTempPath(),
+        $"summa-fiscal-recovery-{Guid.NewGuid():N}");
+    var store = new FileFiscalExchangeStoreV5(new() { RootPath = root });
+    const string iic = "FF34905809F8B5B8D51D87AC98217BF1";
+    const string invoiceNumber = "oo940dt107/18/2026/wx860oc926";
+    var endpoint = new Uri("https://efitest.tax.gov.me/fs-v1");
+
+    try
+    {
+        var firstRequestUuid = Guid.NewGuid();
+        var firstExchangeId = await SaveSuccessfulExchangeAsync(
+            store,
+            firstRequestUuid,
+            Guid.NewGuid(),
+            iic,
+            invoiceNumber,
+            endpoint,
+            "recovery-contract-1");
+        var first = await store.ReadSuccessfulInvoiceAsync(
+            firstExchangeId,
+            CancellationToken.None);
+        if (first is null ||
+            first.RequestUuid != firstRequestUuid ||
+            first.Iic != iic ||
+            first.InvoiceNumber != invoiceNumber ||
+            first.TotalPrice != -242.00m)
+        {
+            throw new InvalidOperationException(
+                "Sačuvani uspješan fiscal exchange nije bezbjedno učitan za oporavak.");
+        }
+
+        await SaveSuccessfulExchangeAsync(
+            store,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            iic,
+            invoiceNumber,
+            endpoint,
+            "recovery-contract-2");
+        var matches = await store.FindSuccessfulInvoicesByIicAsync(
+            iic,
+            CancellationToken.None);
+        if (matches.Count != 2 || matches.All(match => match.ExchangeId != firstExchangeId))
+        {
+            throw new InvalidOperationException(
+                "Više uspješnih PU odgovora za isti IKOF nije ispravno otkriveno.");
+        }
+
+        Console.WriteLine(
+            "Sačuvani uspješan exchange se validira, a više FIC odgovora za isti IKOF se otkriva.");
+    }
+    finally
+    {
+        if (Directory.Exists(root))
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    static async Task<Guid> SaveSuccessfulExchangeAsync(
+        FileFiscalExchangeStoreV5 store,
+        Guid requestUuid,
+        Guid fic,
+        string iic,
+        string invoiceNumber,
+        Uri endpoint,
+        string correlationId)
+    {
+        var request =
+            $"""
+            <RegisterInvoiceRequest xmlns="https://efi.tax.gov.me/fs/schema">
+              <Header UUID="{requestUuid}" />
+              <Invoice IIC="{iic}" InvNum="{invoiceNumber}" TotPrice="-242.00" />
+            </RegisterInvoiceRequest>
+            """;
+        var response =
+            $"""
+            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                              xmlns:me="https://efi.tax.gov.me/fs/schema">
+              <soapenv:Body>
+                <me:RegisterInvoiceResponse Id="Response" Version="1">
+                  <me:Header UUID="{Guid.NewGuid()}" RequestUUID="{requestUuid}"
+                             SendDateTime="2026-08-09T21:30:29+02:00" />
+                  <me:FIC>{fic}</me:FIC>
+                </me:RegisterInvoiceResponse>
+              </soapenv:Body>
+            </soapenv:Envelope>
+            """;
+        var exchangeId = await store.SaveRequestAsync(
+            request,
+            requestUuid,
+            correlationId,
+            endpoint,
+            PuFiscalContractV5.RegisterInvoiceSoapAction,
+            CancellationToken.None);
+        await store.SaveResponseAsync(
+            exchangeId,
+            response,
+            200,
+            CancellationToken.None);
+        return exchangeId;
+    }
 }
 
 static void VerifySummaTestConfiguration()
@@ -549,6 +684,23 @@ static async Task VerifyTransportPersistenceAsync(FiscalDryRunResultV5 dryRun)
         {
             throw new InvalidOperationException(
                 "SOAP transport nije trajno sačuvao kompletnu fiskalnu razmjenu.");
+        }
+
+
+        var storedSuccess = await exchangeStore.ReadSuccessfulInvoiceAsync(
+            result.ExchangeId,
+            CancellationToken.None);
+        var successesByIic = await exchangeStore.FindSuccessfulInvoicesByIicAsync(
+            dryRun.Iic,
+            CancellationToken.None);
+        if (storedSuccess is null ||
+            storedSuccess.RequestUuid != dryRun.RequestUuid ||
+            storedSuccess.Iic != dryRun.Iic ||
+            successesByIic.Count != 1 ||
+            successesByIic.Single().ExchangeId != result.ExchangeId)
+        {
+            throw new InvalidOperationException(
+                "Uspješan sačuvani fiscal exchange nije moguće bezbjedno pronaći za oporavak.");
         }
 
         using var failingHttpClient = new HttpClient(new FailingPuHttpMessageHandler());

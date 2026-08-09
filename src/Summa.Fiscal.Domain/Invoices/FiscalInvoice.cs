@@ -258,7 +258,8 @@ public sealed class FiscalInvoice
     public void MarkFiscalized(
         string jikr,
         string officialInvoiceNumber,
-        string? qrCodeData = null)
+        string? qrCodeData = null,
+        DateTimeOffset? fiscalizedAt = null)
     {
         if (Status != FiscalStatus.FiscalizationPending)
         {
@@ -273,7 +274,7 @@ public sealed class FiscalInvoice
             : officialInvoiceNumber.Trim();
         QrCodeData = qrCodeData;
         Status = FiscalStatus.Fiscalized;
-        FiscalizedAt = DateTimeOffset.UtcNow;
+        FiscalizedAt = (fiscalizedAt ?? DateTimeOffset.UtcNow).ToUniversalTime();
         UpdatedAt = FiscalizedAt.Value;
     }
 

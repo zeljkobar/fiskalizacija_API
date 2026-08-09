@@ -40,7 +40,8 @@ public sealed partial class FiscalQrCodeGeneratorV5 : IFiscalQrCodeGeneratorV5
         var created = input.IssueDateTime.ToString(
             "yyyy-MM-dd'T'HH:mm:sszzz",
             CultureInfo.InvariantCulture);
-        var price = input.TotalPrice.ToString("0.00", CultureInfo.InvariantCulture);
+        var price = Math.Abs(input.TotalPrice)
+            .ToString("0.00", CultureInfo.InvariantCulture);
 
         return $"{baseUrl}?iic={input.Iic}&tin={input.IssuerTin}" +
                $"&crtd={created}&ord={input.InvoiceOrdinalNumber}" +
@@ -61,8 +62,6 @@ public sealed partial class FiscalQrCodeGeneratorV5 : IFiscalQrCodeGeneratorV5
         ValidateCode(input.TcrCode, "Kod ENU");
         ValidateCode(input.SoftwareCode, "Kod softvera");
 
-        if (input.TotalPrice < 0)
-            throw new ArgumentOutOfRangeException(nameof(input), "Ukupna cijena ne može biti negativna.");
     }
 
     private static void ValidateCode(string value, string fieldName)
