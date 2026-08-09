@@ -2,7 +2,7 @@
 
 ## Datum presjeka
 
-02.08.2026.
+03.08.2026.
 
 ## Sažetak
 
@@ -59,6 +59,8 @@ Lični identifikacioni broj operatera, PFX sadržaj, privatni ključ i lozinka n
 - AES-256-GCM šifrovani certificate vault;
 - izbor sertifikata i fiskalnog profila prema firmi i okruženju;
 - API klijenti sa hashovanim ključevima, granularnim dozvolama i tenant izolacijom;
+- centralni klijent sa `platform:admin` pristupa svim sadašnjim i budućim firmama,
+  ali za svaku fiskalnu operaciju i dalje mora imati njenu konkretnu dozvolu;
 - administratorski audit sa correlation ID-em i identitetom aplikacije/korisnika;
 - readiness provjera;
 - trajna upozorenja o isteku sertifikata i background skeniranje;

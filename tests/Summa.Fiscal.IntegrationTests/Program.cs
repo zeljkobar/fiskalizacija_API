@@ -37,6 +37,24 @@ var platform = Context("platform-1", "Platform", [FiscalApiPermissions.PlatformA
 Assert(authorizer.Authorize(platform, FiscalApiPermissions.CertificatesManage, otherCompanyId).IsAllowed,
     "Platform admin mora imati globalni pristup.");
 
+var fiscalAccess = new FiscalAccessAuthorizer();
+var fiscalPlatform = Context("fiscal-platform", "Fiscal platform",
+    [FiscalApiPermissions.PlatformAdmin, FiscalApiPermissions.InvoicesRead, FiscalApiPermissions.InvoicesFiscalize],
+    [], null, null).User;
+Assert(fiscalAccess.HasAccess(fiscalPlatform, FiscalApiPermissions.InvoicesFiscalize, companyId),
+    "Platform admin sa fiskalnom dozvolom mora pristupiti svakoj sadašnjoj firmi.");
+Assert(fiscalAccess.HasAccess(fiscalPlatform, FiscalApiPermissions.InvoicesFiscalize, otherCompanyId),
+    "Platform admin sa fiskalnom dozvolom mora pristupiti i budućim firmama bez posebne dodjele.");
+Assert(!fiscalAccess.HasAccess(fiscalPlatform, FiscalApiPermissions.InvoicesStorno, companyId),
+    "Platform admin ne smije zaobići konkretnu dozvolu za fiskalnu operaciju.");
+
+var tenantFiscalClient = Context("tenant-fiscal", "Tenant fiscal",
+    [FiscalApiPermissions.InvoicesFiscalize], [companyId], null, null).User;
+Assert(fiscalAccess.HasAccess(tenantFiscalClient, FiscalApiPermissions.InvoicesFiscalize, companyId),
+    "Obični fiskalni klijent mora pristupiti dodijeljenoj firmi.");
+Assert(!fiscalAccess.HasAccess(tenantFiscalClient, FiscalApiPermissions.InvoicesFiscalize, otherCompanyId),
+    "Obični fiskalni klijent ne smije pristupiti nedodijeljenoj firmi.");
+
 var bootstrap = new DefaultHttpContext();
 bootstrap.Request.Headers[BootstrapAdminAuthorizer.HeaderName] = "integration-bootstrap";
 Assert(authorizer.Authorize(bootstrap, FiscalApiPermissions.ClientsAdmin).IsBootstrap,

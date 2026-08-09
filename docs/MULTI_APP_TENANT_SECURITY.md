@@ -42,6 +42,12 @@ SHA-256 otisak, nikada čitljiv tajni ključ.
 
 Tipičnom sajtu koji kreira, fiskalizuje i stornira račune dodjeljuju se prve četiri dozvole.
 
+`platform:admin` uklanja potrebu da se centralnom platformsko-administrativnom
+klijentu pojedinačno dodjeljuje svaka firma, pa važi i za firme dodate kasnije.
+Ta dozvola ne zamjenjuje dozvolu konkretne operacije: za fiskalizaciju klijent
+i dalje mora imati `invoices:fiscalize`, za čitanje `invoices:read`, itd. Klijenti
+bez `platform:admin` ostaju strogo ograničeni na svoje `companyIds`.
+
 ## Administrativni API
 
 Administrativne rute koristi samo backend postojećeg Summa sajta. Browser nikada
