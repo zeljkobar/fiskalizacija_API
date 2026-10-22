@@ -201,6 +201,7 @@ internal sealed class FiscalInvoiceConfiguration : FiscalRecordConfiguration<Fis
     protected override void ConfigureRecord(EntityTypeBuilder<FiscalInvoiceRecord> b)
     {
         b.ToTable("fiscal_invoices");
+        b.Property(x => x.OrderSummaryJson).HasColumnType("jsonb");
         b.Property(x => x.InvoiceType).HasMaxLength(30).IsRequired();
         b.Property(x => x.InvoiceNumber).HasMaxLength(100).IsRequired();
         b.Property(x => x.OfficialInvoiceNumber).HasMaxLength(100);
@@ -216,6 +217,17 @@ internal sealed class FiscalInvoiceConfiguration : FiscalRecordConfiguration<Fis
         b.Property(x => x.OriginalIic).HasMaxLength(32);
         b.Property(x => x.CorrectiveType).HasMaxLength(30);
         b.Property(x => x.CorrectionReason).HasMaxLength(500);
+        b.Property(x => x.AdvanceSettlementFinalIic).HasMaxLength(32);
+        b.Property(x => x.AdvanceRestorationStornoIic).HasMaxLength(32);
+        b.HasOne<FiscalInvoiceRecord>().WithMany()
+            .HasForeignKey(x => x.AdvanceRestorationStornoInvoiceId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => x.AdvanceRestorationStornoInvoiceId).IsUnique()
+            .HasFilter("\"AdvanceRestorationStornoInvoiceId\" IS NOT NULL AND \"Status\" <> 'Cancelled'");
+        b.Property(x => x.AdvanceSettlementAllocationsJson).HasColumnType("jsonb").IsRequired();
+        b.HasOne<FiscalInvoiceRecord>().WithMany()
+            .HasForeignKey(x => x.AdvanceSettlementFinalInvoiceId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.OriginalInvoiceId, x.AdvanceSettlementFinalInvoiceId }).IsUnique()
+            .HasFilter("\"AdvanceSettlementFinalInvoiceId\" IS NOT NULL AND \"Status\" <> 'Cancelled'");
         b.Property(x => x.NetAmount).HasPrecision(18, 2);
         b.Property(x => x.VatAmount).HasPrecision(18, 2);
         b.Property(x => x.TotalAmount).HasPrecision(18, 2);
@@ -228,7 +240,8 @@ internal sealed class FiscalInvoiceConfiguration : FiscalRecordConfiguration<Fis
         b.HasIndex(x => new { x.CompanyId, x.IdempotencyKey }).IsUnique();
         b.HasIndex(x => x.Iic).IsUnique().HasFilter("\"Iic\" IS NOT NULL");
         b.HasIndex(x => x.Jikr).IsUnique().HasFilter("\"Jikr\" IS NOT NULL");
-        b.HasIndex(x => x.OriginalInvoiceId).IsUnique().HasFilter("\"OriginalInvoiceId\" IS NOT NULL");
+        b.HasIndex(x => x.OriginalInvoiceId).IsUnique()
+            .HasFilter("\"OriginalInvoiceId\" IS NOT NULL AND \"AdvanceSettlementFinalInvoiceId\" IS NULL AND NOT \"IsOrderCorrection\" AND NOT \"IsSummaryCorrection\" AND \"Status\" <> 'Cancelled'");
         b.HasOne(x => x.Company).WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.BusinessUnit).WithMany().HasForeignKey(x => x.BusinessUnitId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.Device).WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
@@ -269,8 +282,39 @@ internal sealed class FiscalPaymentConfiguration : FiscalRecordConfiguration<Fis
         b.Property(x => x.PaymentType).HasMaxLength(30).IsRequired();
         b.Property(x => x.Amount).HasPrecision(18, 2);
         b.Property(x => x.Reference).HasMaxLength(200);
+        b.Property(x => x.AdvanceIic).HasMaxLength(32);
         b.HasOne(x => x.Invoice).WithMany(x => x.Payments)
             .HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<FiscalInvoiceRecord>().WithMany()
+            .HasForeignKey(x => x.AdvanceInvoiceId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class FiscalAdvanceUsageConfiguration : FiscalRecordConfiguration<FiscalAdvanceUsageRecord>
+{
+    protected override void ConfigureRecord(EntityTypeBuilder<FiscalAdvanceUsageRecord> b)
+    {
+        b.ToTable("fiscal_advance_usages");
+        b.Property(x => x.AdvanceIic).HasMaxLength(32).IsRequired();
+        b.Property(x => x.UsedAmount).HasPrecision(18, 2);
+        b.HasIndex(x => new { x.AdvanceInvoiceId, x.FinalInvoiceId }).IsUnique();
+        b.HasIndex(x => x.FinalInvoiceId);
+        b.HasOne(x => x.AdvanceInvoice).WithMany()
+            .HasForeignKey(x => x.AdvanceInvoiceId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.FinalInvoice).WithMany(x => x.AdvanceUsages)
+            .HasForeignKey(x => x.FinalInvoiceId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal sealed class FiscalSummaryOrderConfiguration : FiscalRecordConfiguration<FiscalSummaryOrderRecord>
+{
+    protected override void ConfigureRecord(EntityTypeBuilder<FiscalSummaryOrderRecord> b)
+    {
+        b.ToTable("fiscal_summary_orders");
+        b.HasIndex(x => x.OrderInvoiceId).IsUnique().HasFilter("\"ReleasedAt\" IS NULL");
+        b.HasIndex(x => new { x.SummaryInvoiceId, x.OrderInvoiceId }).IsUnique();
+        b.HasOne(x => x.SummaryInvoice).WithMany().HasForeignKey(x => x.SummaryInvoiceId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.OrderInvoice).WithMany().HasForeignKey(x => x.OrderInvoiceId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 

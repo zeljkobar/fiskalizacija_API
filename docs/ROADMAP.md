@@ -1,6 +1,6 @@
 # ROADMAP
 
-Status je ažuriran 02.08.2026. Detaljan presjek završenog rada nalazi se u [`CURRENT_STATE.md`](CURRENT_STATE.md).
+Status je ažuriran 22.10.2026. Lokalne dopune za avanse i ORDER/sumarne račune tek treba da budu postavljene na produkciju. Detaljan presjek završenog rada nalazi se u [`CURRENT_STATE.md`](CURRENT_STATE.md).
 
 ## Faza 0 — Dokumentacija i osnova
 
@@ -28,7 +28,20 @@ Status je ažuriran 02.08.2026. Detaljan presjek završenog rada nalazi se u [`C
 - [ ] Automatizovani retry queue i worker.
 - [ ] Potpuni offline/naknadni tok prema PU pravilima.
 - [x] Potpuni storno sa originalnim IKOF-om, negativnim iznosima, auditom i atomskom promjenom statusa originala.
-- [ ] Djelimične korekcije, `ERROR_CORRECTIVE` i avansni tokovi.
+- [x] Bankovni avans, jedan avans po konačnom računu, djelimično korišćenje, atomske rezervacije, saldo i storno neiskorišćenog avansa.
+- [x] Posebno korektivno umanjenje avansa sa vezom na konačni račun, izvornim PDV stopama, auditom i oporavkom.
+- [x] Otkazivanje dokumenta koji nije slat PU uz oslobađanje rezervacije.
+- [ ] Kontrolisani deployment avansne migracije i zaseban live PU test uz potvrdu.
+- [x] Storno konačnog računa plaćenog avansom, obnova salda/PDV-a kontrolisanim poništenjem umanjenja i praćenje dvokoračnog fiskalnog workflow-a.
+- [x] Konkurentnost, atomsko čuvanje i oporavak storna/obnove iz uspješne razmjene bez duplog slanja i oslobađanja salda.
+- [ ] Kontrolisani deployment dopunske migracije obnove i posebno potvrđen live PU test.
+- [ ] Djelimični povrat preostalog dijela avansa i SVOUCHER scenariji.
+- [ ] Više različitih avansa na jednom konačnom računu: prvo zvanično PU pojašnjenje XML mapiranja (`UniquePayMethodType` + pojedinačni obavezni `AdvIIC`), zatim implementacija rezervacija, umanjenja i storna po izvoru. Nije omogućeno; prepreka i negativni contract/XSD testovi opisani su u `ADVANCE_INVOICES.md`.
+- [ ] Opšte djelimične korekcije i `ERROR_CORRECTIVE`.
+- [x] ORDER računi i kontrolisano sumiranje isključivo ORDER izvora sa informativnom oznakom, stvarnim plaćanjem, tačnim IKOF referencama i PDV agregacijom.
+- [x] Djelimične/potpune ORDER korekcije, naknadno usklađenje sumarnog, poništenje/zamjena pogrešnog načina plaćanja, praćenje, audit i oporavak.
+- [x] ORDER/sumarni contract/XSD/potpis testovi, izolovane PostgreSQL provjere konkurentnosti/rollback-a i autorizacija ruta.
+- [ ] Pregled/deployment migracije `AddOrderSummaryWorkflow` i posebno potvrđen PU test novog toka; bez promjene postojeće `BankOnly` politike.
 
 ## Faza 1A — Administracija i produkciona aktivacija
 

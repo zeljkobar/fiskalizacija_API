@@ -1,6 +1,6 @@
 namespace Summa.Fiscal.Domain.Invoices;
 
-public sealed class FiscalInvoice
+public sealed partial class FiscalInvoice
 {
     private readonly List<FiscalInvoiceItem> _items = [];
     private readonly List<FiscalPayment> _payments = [];
@@ -69,6 +69,14 @@ public sealed class FiscalInvoice
     public DateTimeOffset? OriginalIssueDateTime { get; }
     public CorrectiveInvoiceType? CorrectiveType { get; }
     public string? CorrectionReason { get; }
+    public Guid? AdvanceSettlementFinalInvoiceId { get; private set; }
+    public string? AdvanceSettlementFinalIic { get; private set; }
+    public DateTimeOffset? AdvanceSettlementFinalIssuedAt { get; private set; }
+    public Guid? AdvanceRestorationStornoInvoiceId { get; private set; }
+    public string? AdvanceRestorationStornoIic { get; private set; }
+    public DateTimeOffset? AdvanceRestorationStornoIssuedAt { get; private set; }
+    public bool IsAdvanceRestoration => AdvanceRestorationStornoInvoiceId.HasValue;
+    public IReadOnlyCollection<AdvanceSettlementAllocation> AdvanceSettlementAllocations { get; private set; } = [];
     public FiscalStatus Status { get; private set; }
     public decimal TotalNetAmount { get; private set; }
     public decimal TotalVatAmount { get; private set; }
@@ -114,7 +122,16 @@ public sealed class FiscalInvoice
         string? correctionReason,
         IEnumerable<(Guid Id, string Name, decimal Quantity, decimal UnitPrice,
             decimal VatRate, string? ItemCode, string? UnitOfMeasure, decimal DiscountAmount)> items,
-        IEnumerable<(Guid Id, PaymentType PaymentType, decimal Amount, string? Reference)> payments)
+        IEnumerable<(Guid Id, PaymentType PaymentType, decimal Amount, string? Reference,
+            Guid? AdvanceInvoiceId, string? AdvanceIic)> payments,
+        Guid? advanceSettlementFinalInvoiceId = null,
+        string? advanceSettlementFinalIic = null,
+        DateTimeOffset? advanceSettlementFinalIssuedAt = null,
+        IReadOnlyCollection<AdvanceSettlementAllocation>? advanceSettlementAllocations = null,
+        Guid? advanceRestorationStornoInvoiceId = null,
+        string? advanceRestorationStornoIic = null,
+        DateTimeOffset? advanceRestorationStornoIssuedAt = null,
+        OrderSummaryData? orderSummary = null)
     {
         var invoice = new FiscalInvoice(
             companyId,
@@ -147,6 +164,14 @@ public sealed class FiscalInvoice
             UpdatedAt = updatedAt,
             FiscalizedAt = fiscalizedAt
         };
+        invoice.AdvanceSettlementFinalInvoiceId = advanceSettlementFinalInvoiceId;
+        invoice.AdvanceSettlementFinalIic = advanceSettlementFinalIic;
+        invoice.AdvanceSettlementFinalIssuedAt = advanceSettlementFinalIssuedAt;
+        invoice.AdvanceSettlementAllocations = advanceSettlementAllocations ?? [];
+        invoice.AdvanceRestorationStornoInvoiceId = advanceRestorationStornoInvoiceId;
+        invoice.AdvanceRestorationStornoIic = advanceRestorationStornoIic;
+        invoice.AdvanceRestorationStornoIssuedAt = advanceRestorationStornoIssuedAt;
+        invoice.OrderSummary = orderSummary;
 
         foreach (var item in items)
         {
@@ -167,7 +192,9 @@ public sealed class FiscalInvoice
                 payment.Id,
                 payment.PaymentType,
                 payment.Amount,
-                payment.Reference));
+                payment.Reference,
+                payment.AdvanceInvoiceId,
+                payment.AdvanceIic));
         }
 
         invoice.RecalculateTotals();
@@ -208,7 +235,7 @@ public sealed class FiscalInvoice
             original.Buyer,
             original.SupplyPeriodStart,
             original.SupplyPeriodEnd,
-            original.PaymentDeadline,
+            null,
             original.Id,
             original.Iic,
             original.IssueDateTime,
@@ -232,10 +259,115 @@ public sealed class FiscalInvoice
             storno.AddPayment(new FiscalPayment(
                 payment.PaymentType,
                 -payment.Amount,
-                payment.Reference));
+                payment.Reference,
+                payment.AdvanceInvoiceId,
+                payment.AdvanceIic));
         }
 
         return storno;
+    }
+
+    public static FiscalInvoice CreateAdvanceSettlement(
+        FiscalInvoice advance,
+        FiscalInvoice final,
+        string invoiceNumber,
+        DateTimeOffset issuedAt,
+        string idempotencyKey,
+        IReadOnlyCollection<AdvanceSettlementAllocation> allocations)
+    {
+        if (advance.InvoiceType != InvoiceType.Advance || advance.Status != FiscalStatus.Fiscalized ||
+            final.InvoiceType != InvoiceType.Normal || final.Status != FiscalStatus.Fiscalized ||
+            string.IsNullOrWhiteSpace(final.Iic) || string.IsNullOrWhiteSpace(final.Jikr) ||
+            advance.CompanyId != final.CompanyId)
+            throw new InvalidOperationException("Umanjenje zahtijeva fiskalizovani avans i konačni račun iste firme.");
+        var payment = final.Payments.SingleOrDefault(x => x.AdvanceInvoiceId == advance.Id);
+        if (payment is null || allocations.Count == 0 ||
+            allocations.Any(x => x.GrossAmount <= 0 || decimal.Round(x.GrossAmount, 2) != x.GrossAmount) ||
+            allocations.Select(x => x.AdvanceItemId).Distinct().Count() != allocations.Count ||
+            allocations.Sum(x => x.GrossAmount) != payment.Amount)
+            throw new InvalidOperationException("Raspodjela umanjenja mora odgovarati iznosu avansa korišćenom na konačnom računu.");
+
+        var correction = new FiscalInvoice(
+            advance.CompanyId, advance.BusinessUnitId, advance.DeviceId, advance.OperatorId,
+            InvoiceType.Corrective, invoiceNumber, issuedAt, advance.Currency, idempotencyKey,
+            advance.Buyer, originalInvoiceId: advance.Id, originalIic: advance.Iic,
+            originalIssueDateTime: advance.IssueDateTime, correctiveType: CorrectiveInvoiceType.Corrective,
+            correctionReason: "Umanjenje avansa po konačnom računu " + (final.OfficialInvoiceNumber ?? final.InvoiceNumber));
+        correction.AdvanceSettlementFinalInvoiceId = final.Id;
+        correction.AdvanceSettlementFinalIic = final.Iic;
+        correction.AdvanceSettlementFinalIssuedAt = final.IssueDateTime;
+        correction.AdvanceSettlementAllocations = allocations.ToArray();
+        foreach (var allocation in allocations)
+        {
+            var source = advance.Items.SingleOrDefault(x => x.Id == allocation.AdvanceItemId)
+                ?? throw new InvalidOperationException("Raspodjela navodi stavku koja ne pripada avansu.");
+            if (allocation.GrossAmount > source.GrossAmount)
+                throw new InvalidOperationException("Iznos umanjenja prelazi iznos izvorne stavke avansa.");
+            correction.AddItem(new FiscalInvoiceItem(
+                source.Name, -1, allocation.GrossAmount, source.VatRate, source.ItemCode, source.UnitOfMeasure));
+        }
+        // This is a tax reduction of the original bank receipt, not a second cash refund.
+        foreach (var group in advance.Payments.GroupBy(x => x.PaymentType))
+        {
+            if (advance.Payments.Count != 1 || group.Key != PaymentType.BankAccount)
+                throw new InvalidOperationException("Umanjenje avansa trenutno podržava avans uplaćen jednim bankovnim plaćanjem.");
+            correction.AddPayment(new FiscalPayment(PaymentType.BankAccount, -payment.Amount));
+        }
+        return correction;
+    }
+
+    public void CancelUnsubmitted()
+    {
+        if (Status != FiscalStatus.ReadyForFiscalization || !string.IsNullOrWhiteSpace(Iic) || !string.IsNullOrWhiteSpace(Jikr))
+            throw new InvalidOperationException("Može se otkazati samo račun koji nikada nije poslat Poreskoj upravi.");
+        Status = FiscalStatus.Cancelled;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    public static FiscalInvoice CreateAdvanceRestoration(
+        FiscalInvoice settlement, FiscalInvoice finalStorno,
+        string invoiceNumber, DateTimeOffset issuedAt, string idempotencyKey)
+    {
+        if (settlement.InvoiceType != InvoiceType.Corrective || settlement.AdvanceSettlementFinalInvoiceId is null ||
+            settlement.Status != FiscalStatus.Fiscalized || string.IsNullOrWhiteSpace(settlement.Iic) ||
+            string.IsNullOrWhiteSpace(settlement.Jikr) || settlement.TotalGrossAmount >= 0 ||
+            finalStorno.InvoiceType != InvoiceType.Corrective || finalStorno.Status != FiscalStatus.Fiscalized ||
+            string.IsNullOrWhiteSpace(finalStorno.Iic) || string.IsNullOrWhiteSpace(finalStorno.Jikr) ||
+            finalStorno.OriginalInvoiceId != settlement.AdvanceSettlementFinalInvoiceId ||
+            finalStorno.CompanyId != settlement.CompanyId || finalStorno.Currency != settlement.Currency ||
+            issuedAt < finalStorno.IssueDateTime || issuedAt < settlement.IssueDateTime)
+            throw new InvalidOperationException("Obnova avansa zahtijeva fiskalizovano umanjenje i pripadajući fiskalizovani storno konačnog računa.");
+
+        var payment = finalStorno.Payments.SingleOrDefault(x => x.PaymentType == PaymentType.Advance);
+        if (payment is null || payment.AdvanceInvoiceId != settlement.OriginalInvoiceId || payment.Amount != settlement.TotalGrossAmount)
+            throw new InvalidOperationException("Storno i umanjenje ne odnose se na isti avans i iznos.");
+
+        var restoration = new FiscalInvoice(settlement.CompanyId, settlement.BusinessUnitId,
+            settlement.DeviceId, settlement.OperatorId, InvoiceType.Corrective, invoiceNumber, issuedAt,
+            settlement.Currency, idempotencyKey, settlement.Buyer,
+            originalInvoiceId: settlement.Id, originalIic: settlement.Iic,
+            originalIssueDateTime: settlement.IssueDateTime, correctiveType: CorrectiveInvoiceType.Corrective,
+            correctionReason: "Poništenje umanjenja avansa nakon storna konačnog računa " + finalStorno.OfficialInvoiceNumber)
+        {
+            AdvanceRestorationStornoInvoiceId = finalStorno.Id,
+            AdvanceRestorationStornoIic = finalStorno.Iic,
+            AdvanceRestorationStornoIssuedAt = finalStorno.IssueDateTime,
+            AdvanceSettlementAllocations = settlement.AdvanceSettlementAllocations.ToArray()
+        };
+        foreach (var item in settlement.Items)
+            restoration.AddItem(new(item.Name, -item.Quantity, item.UnitPrice, item.VatRate,
+                item.ItemCode, item.UnitOfMeasure, -item.DiscountAmount));
+        foreach (var method in settlement.Payments)
+            restoration.AddPayment(new(method.PaymentType, -method.Amount, method.Reference));
+        return restoration;
+    }
+
+    public void MarkAdvanceSettlementReversed()
+    {
+        if (Status != FiscalStatus.Fiscalized || InvoiceType != InvoiceType.Corrective || AdvanceSettlementFinalInvoiceId is null)
+            throw new InvalidOperationException("Samo fiskalizovano umanjenje avansa može biti označeno kao poništeno obnovom.");
+        Status = FiscalStatus.StornoCreated;
+        UpdatedAt = DateTimeOffset.UtcNow;
     }
 
     public void MarkFiscalizationPending(string iic, string iicSignature)
@@ -367,9 +499,10 @@ public sealed class FiscalInvoice
 
     private void RecalculateTotals()
     {
-        TotalNetAmount = RoundMoney(_items.Sum(item => item.NetAmount));
-        TotalVatAmount = RoundMoney(_items.Sum(item => item.VatAmount));
-        TotalGrossAmount = RoundMoney(_items.Sum(item => item.GrossAmount));
+        // Informational documents sum immutable fiscal source snapshots, never recompute tax from a synthetic item.
+        TotalNetAmount = RoundMoney(IsInformational && OrderSummary is not null ? OrderSummary.References.Sum(x => x.NetAmount) : _items.Sum(item => item.NetAmount));
+        TotalVatAmount = RoundMoney(IsInformational && OrderSummary is not null ? OrderSummary.References.Sum(x => x.VatAmount) : _items.Sum(item => item.VatAmount));
+        TotalGrossAmount = RoundMoney(IsInformational && OrderSummary is not null ? OrderSummary.References.Sum(x => x.GrossAmount) : _items.Sum(item => item.GrossAmount));
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
@@ -384,3 +517,5 @@ public sealed class FiscalInvoice
     private static decimal RoundMoney(decimal value) =>
         decimal.Round(value, 2, MidpointRounding.AwayFromZero);
 }
+
+public sealed record AdvanceSettlementAllocation(Guid AdvanceItemId, decimal GrossAmount);

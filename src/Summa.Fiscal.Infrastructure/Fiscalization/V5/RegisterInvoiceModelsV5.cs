@@ -35,7 +35,10 @@ public sealed record PuInvoiceV5(
     PuBuyerV5? Buyer = null,
     DateOnly? PaymentDeadline = null,
     PuSupplyPeriodV5? SupplyPeriod = null,
-    PuCorrectiveInvoiceV5? CorrectiveInvoice = null);
+    PuCorrectiveInvoiceV5? CorrectiveInvoice = null,
+    IReadOnlyCollection<PuInvoiceReferenceV5>? InvoiceReferences = null);
+
+public sealed record PuInvoiceReferenceV5(string Iic, DateTimeOffset IssueDateTime, decimal Amount);
 
 public sealed record PuSupplyPeriodV5(DateOnly Start, DateOnly End);
 

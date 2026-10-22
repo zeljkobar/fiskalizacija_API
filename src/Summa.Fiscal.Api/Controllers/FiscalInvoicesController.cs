@@ -81,7 +81,8 @@ public sealed class FiscalInvoicesController(
                 .Select(payment => new CreateFiscalPayment(
                     payment.PaymentType,
                     payment.Amount,
-                    payment.Reference))
+                    payment.Reference,
+                    payment.AdvanceInvoiceId))
                 .ToArray(),
             idempotencyKey,
             correlationId,
@@ -158,6 +159,40 @@ public sealed class FiscalInvoicesController(
                 new("STORNO_NOT_FOUND", "Za ovaj račun još ne postoji storno dokument.", []),
                 correlationId))
             : Ok(ApiResponse<FiscalInvoiceResult>.Ok(storno, correlationId));
+    }
+
+    [HttpGet("{id:guid}/advance-balance")]
+    [ProducesResponseType(typeof(ApiResponse<AdvanceBalanceResult>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GetAdvanceBalance(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = GetCorrelationId();
+        var invoice = await applicationService.GetAsync(id, cancellationToken);
+        if (invoice is null)
+        {
+            return NotFound(NotFoundResponse(correlationId));
+        }
+        if (!accessAuthorizer.HasAccess(User, FiscalApiPermissions.InvoicesRead, invoice.CompanyId))
+        {
+            return ForbiddenResponse(correlationId);
+        }
+        if (invoice.InvoiceType != InvoiceType.Advance || string.IsNullOrWhiteSpace(invoice.Iic))
+        {
+            return Conflict(ApiResponse<object>.Fail(
+                new(
+                    "ADVANCE_BALANCE_NOT_AVAILABLE",
+                    "Stanje korišćenja dostupno je samo za fiskalizovani avansni račun.",
+                    []),
+                correlationId));
+        }
+
+        var result = await applicationService.GetAdvanceBalanceAsync(id, cancellationToken);
+        return result is null
+            ? NotFound(NotFoundResponse(correlationId))
+            : Ok(ApiResponse<AdvanceBalanceResult>.Ok(result, correlationId));
     }
 
     [HttpGet("{id:guid}/qr")]
@@ -337,6 +372,73 @@ public sealed class FiscalInvoicesController(
         return AcceptedAtAction(nameof(GetById), new { id = result.Id }, ApiResponse<FiscalInvoiceResult>.Ok(result, correlationId));
     }
 
+    [HttpPost("{id:guid}/advance-settlements")]
+    public async Task<IActionResult> CreateAdvanceSettlement(Guid id,
+        [FromBody] CreateAdvanceSettlementRequest request, CancellationToken cancellationToken)
+    {
+        var correlationId = GetCorrelationId();
+        var invoice = await applicationService.GetAsync(id, cancellationToken);
+        if (invoice is null) return NotFound(NotFoundResponse(correlationId));
+        if (!accessAuthorizer.HasAccess(User, FiscalApiPermissions.InvoicesStorno, invoice.CompanyId))
+            return ForbiddenResponse(correlationId);
+        var key = Request.Headers[IdempotencyHeader].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(key) || key.Length > 200)
+            return BadRequest(ApiResponse<object>.Fail(new("IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key je obavezan (najviše 200 znakova).", []), correlationId));
+        var confirmation = $"CREATE_ADVANCE_SETTLEMENT:{id:D}:{request.FinalInvoiceId:D}";
+        if (request.Confirmation != confirmation)
+            return BadRequest(ApiResponse<object>.Fail(new("ADVANCE_SETTLEMENT_CONFIRMATION_REQUIRED", $"confirmation mora biti {confirmation}.", []), correlationId));
+        var result = await applicationService.CreateAdvanceSettlementAsync(new(id,
+            request.FinalInvoiceId, request.IssueDateTime, request.Allocations ?? [], key, correlationId, Actor()), cancellationToken);
+        return AcceptedAtAction(nameof(GetById), new { id = result.Id }, ApiResponse<FiscalInvoiceResult>.Ok(result, correlationId));
+    }
+
+    [HttpPost("{id:guid}/cancel-unsubmitted")]
+    public async Task<IActionResult> CancelUnsubmitted(Guid id,
+        [FromBody] CancelUnsubmittedInvoiceRequest request, CancellationToken cancellationToken)
+    {
+        var correlationId = GetCorrelationId();
+        var invoice = await applicationService.GetAsync(id, cancellationToken);
+        if (invoice is null) return NotFound(NotFoundResponse(correlationId));
+        if (!accessAuthorizer.HasAccess(User, FiscalApiPermissions.InvoicesStorno, invoice.CompanyId))
+            return ForbiddenResponse(correlationId);
+        var confirmation = $"CANCEL_UNSUBMITTED:{id:D}";
+        if (request.Confirmation != confirmation)
+            return BadRequest(ApiResponse<object>.Fail(new("CANCELLATION_CONFIRMATION_REQUIRED", $"confirmation mora biti {confirmation}.", []), correlationId));
+        await applicationService.CancelUnsubmittedAsync(id, correlationId, Actor(), cancellationToken);
+        return Ok(ApiResponse<FiscalInvoiceResult>.Ok((await applicationService.GetAsync(id, cancellationToken))!, correlationId));
+    }
+
+    [HttpGet("{id:guid}/advance-storno")]
+    public async Task<IActionResult> GetAdvanceStornoWorkflow(Guid id, CancellationToken cancellationToken)
+    {
+        var correlationId = GetCorrelationId();
+        var invoice = await applicationService.GetAsync(id, cancellationToken);
+        if (invoice is null) return NotFound(NotFoundResponse(correlationId));
+        if (!accessAuthorizer.HasAccess(User, FiscalApiPermissions.InvoicesRead, invoice.CompanyId))
+            return ForbiddenResponse(correlationId);
+        return Ok(ApiResponse<AdvanceStornoWorkflowResult>.Ok(
+            await applicationService.GetAdvanceStornoWorkflowAsync(id, cancellationToken), correlationId));
+    }
+
+    [HttpPost("{id:guid}/advance-restorations")]
+    public async Task<IActionResult> CreateAdvanceRestoration(Guid id,
+        [FromBody] CreateAdvanceRestorationRequest request, CancellationToken cancellationToken)
+    {
+        var correlationId = GetCorrelationId();
+        var invoice = await applicationService.GetAsync(id, cancellationToken);
+        if (invoice is null) return NotFound(NotFoundResponse(correlationId));
+        if (!accessAuthorizer.HasAccess(User, FiscalApiPermissions.InvoicesStorno, invoice.CompanyId))
+            return ForbiddenResponse(correlationId);
+        var key = Request.Headers[IdempotencyHeader].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(key) || key.Length > 200)
+            return BadRequest(ApiResponse<object>.Fail(new("IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key je obavezan (najviše 200 znakova).", []), correlationId));
+        var confirmation = $"CREATE_ADVANCE_RESTORATION:{id:D}";
+        if (request.Confirmation != confirmation)
+            return BadRequest(ApiResponse<object>.Fail(new("ADVANCE_RESTORATION_CONFIRMATION_REQUIRED", $"confirmation mora biti {confirmation}.", []), correlationId));
+        var result = await applicationService.CreateAdvanceRestorationAsync(new(id, request.IssueDateTime, key, correlationId, Actor()), cancellationToken);
+        return AcceptedAtAction(nameof(GetById), new { id = result.Id }, ApiResponse<FiscalInvoiceResult>.Ok(result, correlationId));
+    }
+
     private string GetCorrelationId() =>
         HttpContext.Items[CorrelationIdMiddleware.ItemName]?.ToString()
         ?? HttpContext.TraceIdentifier;
@@ -368,6 +470,13 @@ public sealed class FiscalInvoicesController(
 }
 
 public sealed record FiscalizeStoredInvoiceRequest(string Confirmation);
+
+public sealed record CreateAdvanceSettlementRequest(
+    Guid FinalInvoiceId, DateTimeOffset IssueDateTime,
+    IReadOnlyCollection<AdvanceSettlementAllocation>? Allocations, string Confirmation);
+
+public sealed record CancelUnsubmittedInvoiceRequest(string Confirmation);
+public sealed record CreateAdvanceRestorationRequest(DateTimeOffset IssueDateTime, string Confirmation);
 
 public sealed record RecoverFiscalExchangeRequest(
     Guid ExchangeId,

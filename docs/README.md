@@ -17,6 +17,8 @@ Ovaj direktorijum sadrži operativnu, integracionu i izvornu dokumentaciju za Su
 
 ## Integracija računa
 
+- [`ORDER_SUMMARY_WORKFLOW.md`](ORDER_SUMMARY_WORKFLOW.md) — ORDER promet, sumarni račun, djelimične/potpune korekcije, usklađenje, poništenje i zamjena, praćenje i oporavak; lokalna dopuna 22.10.2026.
+- [`ADVANCE_INVOICES.md`](ADVANCE_INVOICES.md) — bankovni avansi, rezervacije, konačni račun, obavezno umanjenje, storno konačnog računa i obnova avansa/PDV-a, praćenje i oporavak; lokalna dopuna 22.10.2026.
 - [`WEBSITE_FISCAL_API_INTEGRATION_GUIDE.md`](WEBSITE_FISCAL_API_INTEGRATION_GUIDE.md) — kako sajt kreira, fiskalizuje i prati račun.
 - [`WEBSITE_INVOICE_PDF_CONTRACT.md`](WEBSITE_INVOICE_PDF_CONTRACT.md) — podjela odgovornosti i tačna polja koja sajt koristi za PDF/štampu.
 - [`OFFICIAL_PU_DOCUMENTATION_NOTES.md`](OFFICIAL_PU_DOCUMENTATION_NOTES.md) — korišćeni zvanični PU izvori i pravila njihovog korišćenja.
@@ -45,4 +47,4 @@ Cijeli `docs` folder može se kopirati u drugi projekat kao dokumentacioni paket
 6. `docs/MULTI_APP_TENANT_SECURITY.md`;
 7. ostale dokumente povezane sa konkretnim zadatkom.
 
-Kopirani paket predstavlja ugovor i stanje Fiscal API-ja na dan 02.08.2026. Fiskalnu XML/SOAP logiku ne treba kopirati u administrativni sajt: sajt je klijent Summa Fiscal API-ja. Kada se API ugovor ili deployment status promijeni, kopiju dokumentacije u projektu sajta treba ponovo sinhronizovati.
+Paket sadrži ranije potvrđeno produkciono stanje i lokalne dopune za avanse i ORDER/sumarne račune od 22.10.2026; taj kod i migracije tek treba da budu postavljeni na server. Fiskalnu XML/SOAP logiku ne treba kopirati u administrativni sajt: sajt je klijent Summa Fiscal API-ja. Kada se API ugovor ili deployment status promijeni, kopiju dokumentacije u projektu sajta treba ponovo sinhronizovati.

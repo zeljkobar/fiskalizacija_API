@@ -155,6 +155,9 @@ public sealed class FiscalAuditRecord : FiscalRecord
 
 public sealed class FiscalInvoiceRecord : FiscalRecord
 {
+    public string? OrderSummaryJson { get; set; }
+    public bool IsOrderCorrection { get; set; }
+    public bool IsSummaryCorrection { get; set; }
     public Guid CompanyId { get; set; }
     public CompanyRecord Company { get; set; } = null!;
     public Guid BusinessUnitId { get; set; }
@@ -186,6 +189,13 @@ public sealed class FiscalInvoiceRecord : FiscalRecord
     public DateTimeOffset? OriginalIssueDateTime { get; set; }
     public string? CorrectiveType { get; set; }
     public string? CorrectionReason { get; set; }
+    public Guid? AdvanceSettlementFinalInvoiceId { get; set; }
+    public string? AdvanceSettlementFinalIic { get; set; }
+    public DateTimeOffset? AdvanceSettlementFinalIssuedAt { get; set; }
+    public string AdvanceSettlementAllocationsJson { get; set; } = "[]";
+    public Guid? AdvanceRestorationStornoInvoiceId { get; set; }
+    public string? AdvanceRestorationStornoIic { get; set; }
+    public DateTimeOffset? AdvanceRestorationStornoIssuedAt { get; set; }
     public decimal NetAmount { get; set; }
     public decimal VatAmount { get; set; }
     public decimal TotalAmount { get; set; }
@@ -199,6 +209,7 @@ public sealed class FiscalInvoiceRecord : FiscalRecord
     public DateTimeOffset? FiscalizedAt { get; set; }
     public ICollection<FiscalInvoiceItemRecord> Items { get; set; } = [];
     public ICollection<FiscalPaymentRecord> Payments { get; set; } = [];
+    public ICollection<FiscalAdvanceUsageRecord> AdvanceUsages { get; set; } = [];
 }
 
 public sealed class FiscalInvoiceItemRecord : FiscalRecord
@@ -227,6 +238,28 @@ public sealed class FiscalPaymentRecord : FiscalRecord
     public string PaymentType { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public string? Reference { get; set; }
+    public Guid? AdvanceInvoiceId { get; set; }
+    public string? AdvanceIic { get; set; }
+}
+
+public sealed class FiscalAdvanceUsageRecord : FiscalRecord
+{
+    public Guid AdvanceInvoiceId { get; set; }
+    public FiscalInvoiceRecord AdvanceInvoice { get; set; } = null!;
+    public Guid FinalInvoiceId { get; set; }
+    public FiscalInvoiceRecord FinalInvoice { get; set; } = null!;
+    public string AdvanceIic { get; set; } = string.Empty;
+    public decimal UsedAmount { get; set; }
+    public DateTimeOffset? ReleasedAt { get; set; }
+}
+
+public sealed class FiscalSummaryOrderRecord : FiscalRecord
+{
+    public Guid SummaryInvoiceId { get; set; }
+    public FiscalInvoiceRecord SummaryInvoice { get; set; } = null!;
+    public Guid OrderInvoiceId { get; set; }
+    public FiscalInvoiceRecord OrderInvoice { get; set; } = null!;
+    public DateTimeOffset? ReleasedAt { get; set; }
 }
 
 public sealed class CashDepositRecord : FiscalRecord

@@ -1,4 +1,5 @@
 using System.Security.Cryptography.X509Certificates;
+using static Summa.Fiscal.Infrastructure.Fiscalization.V5.FiscalInvoiceRequestFactoryV5;
 using Summa.Fiscal.Application.Abstractions;
 using Summa.Fiscal.Application.Invoices;
 using Summa.Fiscal.Application.Onboarding;
@@ -98,9 +99,31 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             cancellationToken);
         var configuration = BuildConfiguration(fiscalContext);
         configuration.EnsureReadyForInvoice();
+        if (invoice.Payments.Any(x => x.PaymentType == PaymentType.Advance))
+        {
+            foreach (var payment in invoice.Payments.Where(x => x.PaymentType == PaymentType.Advance))
+            {
+                var advance = await repository.GetByIdAsync(payment.AdvanceInvoiceId!.Value, cancellationToken)
+                    ?? throw new FiscalInvoiceOperationException("ADVANCE_NOT_FOUND", "Izvorni avans nije pronađen.");
+                var sourceUnit = await onboardingService.GetBusinessUnitAsync(advance.CompanyId, advance.BusinessUnitId, cancellationToken);
+                if (sourceUnit.Environment != fiscalContext.BusinessUnit.Environment)
+                    throw new FiscalInvoiceOperationException("ADVANCE_ENVIRONMENT_MISMATCH", "Avans pripada drugom fiskalnom okruženju.");
+                if (invoice.InvoiceType == InvoiceType.Normal)
+                    AdvanceInvoiceRules.EnsureAvailable(advance, invoice, payment.Amount, 0);
+                else
+                {
+                    var final = await repository.GetByIdAsync(invoice.OriginalInvoiceId!.Value, cancellationToken)
+                        ?? throw new FiscalInvoiceOperationException("ORIGINAL_INVOICE_NOT_FOUND", "Konačni račun nije pronađen.");
+                    AdvanceStornoRules.EnsureFinalStornoReference(invoice, final);
+                }
+                if (fiscalContext.Company.PaymentPolicy == "BankOnly" && advance.Payments.Any(x => x.PaymentType != PaymentType.BankAccount))
+                    throw new FiscalInvoiceOperationException("PRODUCTION_PAYMENT_POLICY_VIOLATION", "Izvorni avans mora biti uplaćen preko banke.");
+            }
+        }
         if (string.Equals(fiscalContext.Company.Environment, "Production", StringComparison.Ordinal) &&
             string.Equals(fiscalContext.Company.PaymentPolicy, "BankOnly", StringComparison.Ordinal) &&
-            invoice.Payments.Any(payment => payment.PaymentType != PaymentType.BankAccount))
+            invoice.Payments.Any(payment => payment.PaymentType is not (
+                PaymentType.BankAccount or PaymentType.Advance)))
         {
             throw new FiscalOnboardingException("PRODUCTION_PAYMENT_POLICY_VIOLATION",
                 "Produkcioni profil firme dozvoljava isključivo bezgotovinsko plaćanje preko bankovnog računa.");
@@ -178,7 +201,7 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
                 invoice.TotalGrossAmount),
             certificate);
 
-        var request = BuildRequest(
+        var request = Build(
             invoice,
             configuration,
             issueDateTime,
@@ -210,85 +233,65 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
         invoice.MarkFiscalizationPending(iic.Iic, iic.IicSignature);
         await repository.UpdateAsync(invoice, cancellationToken);
 
-        try
-        {
-            using var handler = new PuClientCertificateHandlerV5(certificate);
-            using var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-            var puClient = new PuFiscalSoapClientV5(httpClient, soapEnvelope, responseParser, exchangeStore);
-            var transport = await puClient.RegisterInvoiceAsync(
-                endpoint,
-                signed.SignedDocument,
-                correlationId,
-                cancellationToken);
-            var fiscalizationSucceeded =
-                transport.Response.IsSuccess &&
-                !string.IsNullOrWhiteSpace(transport.Response.Fic);
+        // Unknown transport outcomes remain Pending until exchange recovery or explicit resolution.
+        using var handler = new PuClientCertificateHandlerV5(certificate);
+        using var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+        var puClient = new PuFiscalSoapClientV5(httpClient, soapEnvelope, responseParser, exchangeStore);
+        var transport = await puClient.RegisterInvoiceAsync(
+            endpoint,
+            signed.SignedDocument,
+            correlationId,
+            cancellationToken);
+        var fiscalizationSucceeded =
+            transport.Response.IsSuccess &&
+            !string.IsNullOrWhiteSpace(transport.Response.Fic);
 
-            if (fiscalizationSucceeded)
-            {
-                var qrCodeData = GenerateQrCodeData(
-                    invoice,
-                    configuration,
-                    issueDateTime,
-                    ordinalNumber);
-                invoice.MarkFiscalized(transport.Response.Fic!, officialInvoiceNumber, qrCodeData);
-                if (invoice.OriginalInvoiceId is { } originalInvoiceId)
-                {
-                    var original = await repository.GetByIdAsync(originalInvoiceId, cancellationToken)
-                        ?? throw new InvalidOperationException("Originalni račun korektivnog dokumenta nije pronađen.");
-                    original.MarkStornoCreated();
-                    await repository.CompleteCorrectiveAsync(invoice, original, cancellationToken);
-                }
-                else
-                {
-                    await repository.UpdateAsync(invoice, cancellationToken);
-                }
-            }
-            else
-            {
-                invoice.MarkFiscalizationFailed();
-                await repository.UpdateAsync(invoice, cancellationToken);
-            }
-            await auditService.RecordAsync(
-                new(
-                    fiscalizationSucceeded ? "FISCAL_INVOICE_FISCALIZED" : "FISCAL_INVOICE_REJECTED",
-                    invoice.Id,
-                    invoice.CompanyId,
-                    correlationId,
-                    "fiscalization-engine",
-                    DateTimeOffset.UtcNow,
-                    new Dictionary<string, string?>
-                    {
-                        ["exchangeId"] = transport.ExchangeId.ToString(),
-                        ["invoiceNumber"] = officialInvoiceNumber,
-                        ["iic"] = iic.Iic,
-                        ["jikr"] = transport.Response.Fic,
-                        ["originalInvoiceId"] = invoice.OriginalInvoiceId?.ToString(),
-                        ["faultCode"] = transport.Response.Fault?.Code
-                    }),
-                cancellationToken);
-            return new(
-                invoice.Id,
-                transport.ExchangeId,
-                (int)transport.StatusCode,
-                fiscalizationSucceeded,
-                officialInvoiceNumber,
-                iic.Iic,
-                transport.Response.Fic,
-                invoice.QrCodeData,
-                invoice.Status,
-                transport.Response.Fault?.Code,
-                transport.Response.Fault?.Message);
-        }
-        catch
+        if (fiscalizationSucceeded)
         {
-            if (invoice.Status == FiscalStatus.FiscalizationPending)
-            {
-                invoice.MarkFiscalizationFailed();
-                await repository.UpdateAsync(invoice, CancellationToken.None);
-            }
-            throw;
+            var qrCodeData = GenerateQrCodeData(
+                invoice,
+                configuration,
+                issueDateTime,
+                ordinalNumber);
+            invoice.MarkFiscalized(transport.Response.Fic!, officialInvoiceNumber, qrCodeData);
+            await PersistSuccessfulInvoiceAsync(invoice, correlationId, "fiscalization-engine", cancellationToken);
         }
+        else
+        {
+            invoice.MarkFiscalizationFailed();
+            await repository.UpdateAsync(invoice, cancellationToken);
+        }
+        await auditService.RecordAsync(
+            new(
+                fiscalizationSucceeded ? "FISCAL_INVOICE_FISCALIZED" : "FISCAL_INVOICE_REJECTED",
+                invoice.Id,
+                invoice.CompanyId,
+                correlationId,
+                "fiscalization-engine",
+                DateTimeOffset.UtcNow,
+                new Dictionary<string, string?>
+                {
+                    ["exchangeId"] = transport.ExchangeId.ToString(),
+                    ["invoiceNumber"] = officialInvoiceNumber,
+                    ["iic"] = iic.Iic,
+                    ["jikr"] = transport.Response.Fic,
+                    ["originalInvoiceId"] = invoice.OriginalInvoiceId?.ToString(),
+                    ["faultCode"] = transport.Response.Fault?.Code
+                }),
+            cancellationToken);
+        return new(
+            invoice.Id,
+            transport.ExchangeId,
+            (int)transport.StatusCode,
+            fiscalizationSucceeded,
+            officialInvoiceNumber,
+            iic.Iic,
+            transport.Response.Fic,
+            invoice.QrCodeData,
+            invoice.Status,
+            transport.Response.Fault?.Code,
+            transport.Response.Fault?.Message);
+
     }
 
     public async Task<FiscalInvoiceSubmissionResultV5?> RecoverAsync(
@@ -384,20 +387,7 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             qrCodeData,
             response.SendDateTime ?? evidence.ReceivedAt);
 
-        if (invoice.OriginalInvoiceId is { } originalInvoiceId)
-        {
-            var original = await repository.GetByIdAsync(originalInvoiceId, cancellationToken)
-                ?? throw new FiscalInvoiceOperationException(
-                    "ORIGINAL_INVOICE_NOT_FOUND",
-                    "Originalni račun korektivnog dokumenta nije pronađen.",
-                    404);
-            original.MarkStornoCreated();
-            await repository.CompleteCorrectiveAsync(invoice, original, cancellationToken);
-        }
-        else
-        {
-            await repository.UpdateAsync(invoice, cancellationToken);
-        }
+        await PersistSuccessfulInvoiceAsync(invoice, correlationId, actor, cancellationToken);
 
         await auditService.RecordAsync(
             new(
@@ -432,29 +422,54 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             null);
     }
 
+    private async Task PersistSuccessfulInvoiceAsync(FiscalInvoice invoice, string correlationId, string actor, CancellationToken cancellationToken)
+    {
+        if (invoice.IsInformational || invoice.IsOrderCorrection)
+        {
+            await repository.CompleteOrderSummaryAsync(invoice, new("FISCAL_ORDER_SUMMARY_COMPLETED", invoice.Id,
+                invoice.CompanyId, correlationId, actor, DateTimeOffset.UtcNow,
+                new Dictionary<string, string?> { ["jikr"] = invoice.Jikr, ["informational"] = invoice.IsInformational.ToString() }), cancellationToken);
+            return;
+        }
+        if (invoice.OriginalInvoiceId is { } originalId && invoice.AdvanceSettlementFinalInvoiceId is null)
+        {
+            var original = await repository.GetByIdAsync(originalId, cancellationToken)
+                ?? throw new FiscalInvoiceOperationException("ORIGINAL_INVOICE_NOT_FOUND", "Originalni dokument nije pronađen.", 404);
+            if (original.Status != FiscalStatus.StornoCreated)
+            {
+                if (invoice.IsAdvanceRestoration) original.MarkAdvanceSettlementReversed();
+                else original.MarkStornoCreated();
+            }
+            await repository.CompleteCorrectiveAsync(invoice, original, cancellationToken,
+                new("FISCAL_CORRECTIVE_COMPLETED", invoice.Id, invoice.CompanyId, correlationId, actor,
+                    DateTimeOffset.UtcNow, new Dictionary<string, string?>
+                    {
+                        ["originalInvoiceId"] = original.Id.ToString(), ["jikr"] = invoice.Jikr,
+                        ["advanceRestorationStornoInvoiceId"] = invoice.AdvanceRestorationStornoInvoiceId?.ToString()
+                    }));
+        }
+        else await repository.UpdateAsync(invoice, cancellationToken);
+    }
+
     private async Task<PuFiscalizationOptionsV5> BuildRecoveryConfigurationAsync(
         FiscalInvoice invoice,
         CancellationToken cancellationToken)
     {
-        var companyTask = onboardingService.GetCompanyAsync(
+        var company = await onboardingService.GetCompanyAsync(
             invoice.CompanyId,
             cancellationToken);
-        var businessUnitTask = onboardingService.GetBusinessUnitAsync(
+        var businessUnit = await onboardingService.GetBusinessUnitAsync(
             invoice.CompanyId,
             invoice.BusinessUnitId,
             cancellationToken);
-        var deviceTask = onboardingService.GetDeviceAsync(
+        var device = await onboardingService.GetDeviceAsync(
             invoice.CompanyId,
             invoice.DeviceId,
             cancellationToken);
-        var operatorTask = onboardingService.GetOperatorAsync(
+        var fiscalOperator = await onboardingService.GetOperatorAsync(
             invoice.CompanyId,
             invoice.OperatorId,
             cancellationToken);
-        await Task.WhenAll(companyTask, businessUnitTask, deviceTask, operatorTask);
-
-        var businessUnit = await businessUnitTask;
-        var device = await deviceTask;
         if (device.BusinessUnitId != businessUnit.Id)
         {
             throw new FiscalInvoiceOperationException(
@@ -463,10 +478,10 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
         }
 
         return BuildConfiguration(
-            await companyTask,
+            company,
             businessUnit,
             device,
-            await operatorTask);
+            fiscalOperator);
     }
 
     private static void ValidateRecoveryEvidence(
@@ -540,97 +555,6 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             configuration.SoftwareCode,
             invoice.TotalGrossAmount));
 
-    private static RegisterInvoiceRequestV5 BuildRequest(
-        FiscalInvoice invoice,
-        PuFiscalizationOptionsV5 configuration,
-        DateTimeOffset issueDateTime,
-        string officialInvoiceNumber,
-        int ordinalNumber,
-        IicGenerationResultV5 iic)
-    {
-        var paymentMethods = invoice.Payments.Select(payment => new PuPaymentV5(
-            MapPayment(payment.PaymentType),
-            payment.Amount,
-            BankAccount: payment.PaymentType == PaymentType.BankAccount
-                ? payment.Reference
-                : null)).ToArray();
-        var isCash = invoice.Payments.Any(payment =>
-            payment.PaymentType is PaymentType.Cash or PaymentType.Card or
-                PaymentType.Voucher or PaymentType.Other);
-
-        var items = invoice.Items.Select(item => new PuInvoiceItemV5(
-            item.Name,
-            string.IsNullOrWhiteSpace(item.UnitOfMeasure) ? "kom" : item.UnitOfMeasure,
-            item.Quantity,
-            item.VatRate == 0
-                ? item.UnitPrice
-                : decimal.Round(item.UnitPrice / (1 + item.VatRate / 100), 4),
-            item.UnitPrice,
-            item.NetAmount,
-            item.GrossAmount,
-            item.ItemCode,
-            item.DiscountAmount != 0
-                ? decimal.Round(Math.Abs(item.DiscountAmount) / Math.Abs(item.Quantity * item.UnitPrice) * 100, 4)
-                : null,
-            item.DiscountAmount != 0 ? true : null,
-            item.VatRate,
-            item.VatAmount)).ToArray();
-        var taxes = invoice.Items
-            .GroupBy(item => item.VatRate)
-            .Select(group => new PuSameTaxV5(
-                group.Count(),
-                group.Sum(item => item.NetAmount),
-                group.Key,
-                group.Sum(item => item.VatAmount)))
-            .ToArray();
-
-        return new(
-            new(Guid.NewGuid(), issueDateTime),
-            new(
-                isCash ? PuInvoiceTypeV5.Cash : PuInvoiceTypeV5.NonCash,
-                issueDateTime,
-                officialInvoiceNumber,
-                ordinalNumber,
-                configuration.TcrCode,
-                configuration.IsIssuerInVat,
-                invoice.TotalNetAmount,
-                invoice.TotalVatAmount,
-                invoice.TotalGrossAmount,
-                configuration.OperatorCode,
-                configuration.BusinessUnitCode,
-                configuration.SoftwareCode,
-                iic.Iic,
-                iic.IicSignature,
-                new(
-                    PuIdTypeV5.Tin,
-                    configuration.IssuerTin,
-                    configuration.SellerName,
-                    configuration.SellerAddress,
-                    configuration.SellerTown,
-                    configuration.SellerCountry),
-                paymentMethods,
-                items,
-                taxes,
-                MapDocumentType(invoice.InvoiceType),
-                Buyer: invoice.Buyer is null ? null : new PuBuyerV5(
-                    MapBuyerIdentificationType(invoice.Buyer.IdentificationType),
-                    invoice.Buyer.IdentificationNumber,
-                    invoice.Buyer.Name,
-                    invoice.Buyer.Address,
-                    invoice.Buyer.Town,
-                    invoice.Buyer.Country,
-                    invoice.Buyer.TaxIdentificationCode),
-                PaymentDeadline: invoice.PaymentDeadline,
-                SupplyPeriod: invoice.SupplyPeriodStart.HasValue && invoice.SupplyPeriodEnd.HasValue
-                    ? new(invoice.SupplyPeriodStart.Value, invoice.SupplyPeriodEnd.Value)
-                    : null,
-                CorrectiveInvoice: invoice.OriginalIic is not null && invoice.OriginalIssueDateTime.HasValue && invoice.CorrectiveType.HasValue
-                    ? new(
-                        invoice.OriginalIic,
-                        ToMontenegroTime(invoice.OriginalIssueDateTime.Value),
-                        MapCorrectiveType(invoice.CorrectiveType.Value))
-                    : null));
-    }
 
     private static int ReadOrdinalNumber(string invoiceNumber) =>
         int.TryParse(
@@ -640,50 +564,4 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             : throw new InvalidOperationException(
                 "Broj računa mora početi pozitivnim rednim brojem.");
 
-    private static DateTimeOffset ToMontenegroTime(DateTimeOffset value)
-    {
-        var zoneId = OperatingSystem.IsWindows()
-            ? "Central European Standard Time"
-            : "Europe/Podgorica";
-        return TimeZoneInfo.ConvertTime(value, TimeZoneInfo.FindSystemTimeZoneById(zoneId));
-    }
-
-    private static PuPaymentMethodV5 MapPayment(PaymentType paymentType) => paymentType switch
-    {
-        PaymentType.Cash => PuPaymentMethodV5.Banknote,
-        PaymentType.Card => PuPaymentMethodV5.Card,
-        PaymentType.BankAccount => PuPaymentMethodV5.Account,
-        PaymentType.Voucher => PuPaymentMethodV5.ServiceVoucher,
-        PaymentType.Other => PuPaymentMethodV5.Other,
-        _ => throw new ArgumentOutOfRangeException(nameof(paymentType), paymentType, null)
-    };
-
-    private static PuInvoiceDocumentTypeV5 MapDocumentType(InvoiceType invoiceType) =>
-        invoiceType switch
-        {
-            InvoiceType.Normal => PuInvoiceDocumentTypeV5.Invoice,
-            InvoiceType.Advance => PuInvoiceDocumentTypeV5.Advance,
-            InvoiceType.Corrective => PuInvoiceDocumentTypeV5.Corrective,
-            InvoiceType.Periodic => PuInvoiceDocumentTypeV5.Periodical,
-            InvoiceType.Summary => PuInvoiceDocumentTypeV5.Summary,
-            _ => throw new ArgumentOutOfRangeException(nameof(invoiceType), invoiceType, null)
-        };
-
-    private static PuIdTypeV5 MapBuyerIdentificationType(BuyerIdentificationType type) => type switch
-    {
-        BuyerIdentificationType.Tin => PuIdTypeV5.Tin,
-        BuyerIdentificationType.Id => PuIdTypeV5.Id,
-        BuyerIdentificationType.Passport => PuIdTypeV5.Passport,
-        BuyerIdentificationType.Vat => PuIdTypeV5.Vat,
-        BuyerIdentificationType.Tax => PuIdTypeV5.Tax,
-        BuyerIdentificationType.Social => PuIdTypeV5.Social,
-        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
-    };
-
-    private static PuCorrectiveInvoiceTypeV5 MapCorrectiveType(CorrectiveInvoiceType type) => type switch
-    {
-        CorrectiveInvoiceType.Corrective => PuCorrectiveInvoiceTypeV5.Corrective,
-        CorrectiveInvoiceType.ErrorCorrective => PuCorrectiveInvoiceTypeV5.ErrorCorrective,
-        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
-    };
 }

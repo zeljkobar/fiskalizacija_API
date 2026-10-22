@@ -20,6 +20,8 @@ public sealed class SummaFiscalDbContext(DbContextOptions<SummaFiscalDbContext> 
     public DbSet<FiscalInvoiceRecord> FiscalInvoices => Set<FiscalInvoiceRecord>();
     public DbSet<FiscalInvoiceItemRecord> FiscalInvoiceItems => Set<FiscalInvoiceItemRecord>();
     public DbSet<FiscalPaymentRecord> FiscalPayments => Set<FiscalPaymentRecord>();
+    public DbSet<FiscalAdvanceUsageRecord> FiscalAdvanceUsages => Set<FiscalAdvanceUsageRecord>();
+    public DbSet<FiscalSummaryOrderRecord> FiscalSummaryOrders => Set<FiscalSummaryOrderRecord>();
     public DbSet<CashDepositRecord> CashDeposits => Set<CashDepositRecord>();
     public DbSet<FiscalExchangeRecord> FiscalExchanges => Set<FiscalExchangeRecord>();
     public DbSet<InvoiceSequenceRecord> InvoiceSequences => Set<InvoiceSequenceRecord>();

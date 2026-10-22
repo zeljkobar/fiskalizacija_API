@@ -1,5 +1,11 @@
 # Integracija sajta sa Summa Fiscal API-jem
 
+## Lokalna dopuna — ORDER/sumarni workflow (22.10.2026.)
+
+Za otvoreni sto koristiti `Normal` sa jedinim plaćanjem `Order`, a zatvaranje pripremiti kroz `POST /api/v1/fiscal/invoices/summaries` iz postojećih fiskalizovanih izvora. Korekcije izvornog prometa i informativnog sumarnog su odvojeni dokumenti; postoje i poništenje/zamjena pogrešnog načina plaćanja, pregled dugova procesa i recovery. Tačne rute, tijela i eksplicitne potvrde nalaze se u [ORDER_SUMMARY_WORKFLOW.md](ORDER_SUMMARY_WORKFLOW.md).
+
+`isInformational=true` na sumarnom i njegovim korekcijama znači da ih sajt ne smije ponovo knjižiti kao promet/PDV. `orderSummary` sadrži fiskalne reference i ID-eve obuhvaćenih izvora/korekcija. API ne čuva UI stolove niti šalje automatski pripremljene dokumente. Lokalni kod/migracija nijesu ovim korakom postavljeni na server; trenutni produkcioni `BankOnly` profil ostaje nepromijenjen i ne dozvoljava ORDER.
+
 > Za autentifikaciju više sajtova i izolaciju firmi obavezno pročitati i
 > [MULTI_APP_TENANT_SECURITY.md](MULTI_APP_TENANT_SECURITY.md).
 >
@@ -219,7 +225,7 @@ Primjer razvojnog zahtjeva:
 
 Važno: prazan `invoiceNumber` uključuje automatsko atomsko rezervisanje sljedećeg broja za izabrani ENU i godinu. `unitPrice` je **bruto jedinična cijena**, odnosno cijena sa PDV-om. Kod gornjeg primjera ukupan bruto iznos je `1.00`, a ne `1.21`.
 
-Za direktno kreiranje podržan je `Normal`. `Corrective` se kreira isključivo preko kontrolisanog storno endpointa; ostali tipovi se odbijaju dok njihov kompletan poslovni tok ne bude implementiran.
+Za direktno kreiranje podržani su `Normal` i, u lokalnoj dopuni od 22.10.2026, `Advance` sa bankovnom uplatom. `Corrective` se kreira preko kontrolisanog storno endpointa ili posebnog endpointa umanjenja avansa; `Periodic` i `Summary` se odbijaju dok njihov kompletan poslovni tok ne bude implementiran. Avansni ugovor je u [`ADVANCE_INVOICES.md`](ADVANCE_INVOICES.md).
 
 Poznate vrijednosti `invoiceType`:
 
@@ -233,12 +239,15 @@ Summary
 
 Podržane trenutne vrijednosti `paymentType`:
 
+Lokalna avansna dopuna od 22.10.2026. dodaje `Advance` sa obaveznim `advanceInvoiceId`. Detalji i ograničenje jedne avansne stavke po konačnom računu su u [`ADVANCE_INVOICES.md`](ADVANCE_INVOICES.md).
+
 ```text
 Cash
 Card
 BankAccount
 Voucher
 Other
+Advance
 ```
 
 Ne izmišljati drugačije nazive enum vrijednosti. Na primjer, `NonCash` i `BankTransfer` trenutno nijesu validne vrijednosti javnog REST ugovora.
@@ -619,7 +628,7 @@ Nakon statusa `Fiscalized`:
 
 Ne koristiti hard delete za fiskalne dokumente.
 
-Potpuni storno je implementiran kao poseban `Corrective` dokument sa negativnim stavkama i plaćanjem, te obaveznom vezom ka originalnom IKOF-u i datumu. Djelimične korekcije, `ERROR_CORRECTIVE` i avansni račun ostaju posebni budući workflow-i i ne smiju se simulirati izmjenom originala.
+Potpuni storno je implementiran kao poseban `Corrective` dokument sa negativnim stavkama i plaćanjem, te obaveznom vezom ka originalnom IKOF-u i datumu. Lokalna dopuna od 22.10.2026. podržava bankovni avans, njegovo korišćenje, obavezno umanjenje, storno neiskorišćenog avansa i storno konačnog računa sa vraćanjem avansa na saldo. Ako prethodno umanjenje već ima JIKR, potrebna je zasebno fiskalizovana pozitivna obnova: `POST /{stornoId}/advance-restorations`; dovršenost se čita preko `GET /{finalId}/advance-storno`. Sajt mora prikazati nedovršenu obnovu i zahtijevati zaseban pregled/potvrdu njenog slanja. Ugovor, ograničenja i nove rute su u [`ADVANCE_INVOICES.md`](ADVANCE_INVOICES.md). Opšte djelimične korekcije i `ERROR_CORRECTIVE` ostaju budući workflow-i i ne smiju se simulirati izmjenom originala.
 
 ---
 
@@ -838,7 +847,8 @@ Status backend-a i preostalih obaveza sajta:
 - [x] potpuni storno/korektivni backend workflow;
 - [ ] korisnički ekran i pregled/potvrda storna na sajtu;
 - [ ] djelimične korekcije i `ERROR_CORRECTIVE`;
-- [ ] avansni računi ako ih sajt nudi;
+- [x] lokalni backend za bankovne avanse, rezervacije i korektivno umanjenje prema `ADVANCE_INVOICES.md`;
+- [ ] avansna migracija na serveru i ekrani sajta za avans, konačni račun i obavezno umanjenje;
 - [x] trajni fiskalni i administratorski audit;
 - [x] trajni alertovi i background provjera isteka sertifikata;
 - [ ] produkcijski monitoring i kanal isporuke alerta;

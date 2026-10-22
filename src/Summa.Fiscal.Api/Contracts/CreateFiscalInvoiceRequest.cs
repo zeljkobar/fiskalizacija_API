@@ -39,7 +39,8 @@ public sealed record CreateFiscalInvoiceItemRequest(
 public sealed record CreateFiscalPaymentRequest(
     PaymentType PaymentType,
     decimal Amount,
-    string? Reference = null);
+    string? Reference = null,
+    Guid? AdvanceInvoiceId = null);
 
 public sealed record CreateStornoRequest(
     string InvoiceNumber,

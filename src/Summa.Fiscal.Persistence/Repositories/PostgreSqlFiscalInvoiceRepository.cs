@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using System.Data;
+using System.Text.Json;
 using Summa.Fiscal.Application.Abstractions;
 using Summa.Fiscal.Application.Invoices;
 using Summa.Fiscal.Domain.Invoices;
@@ -7,7 +9,7 @@ using Summa.Fiscal.Persistence.Entities;
 
 namespace Summa.Fiscal.Persistence.Repositories;
 
-public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbContext)
+public sealed partial class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbContext)
     : IFiscalInvoiceRepository
 {
     public async Task<FiscalInvoice?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
@@ -32,16 +34,229 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
         CancellationToken cancellationToken)
     {
         var record = await Query().SingleOrDefaultAsync(
-            x => x.OriginalInvoiceId == originalInvoiceId,
+            x => x.OriginalInvoiceId == originalInvoiceId && x.AdvanceSettlementFinalInvoiceId == null && !x.IsOrderCorrection && !x.IsSummaryCorrection && x.Status != "Cancelled",
             cancellationToken);
         return record is null ? null : ToDomain(record);
     }
 
-    public async Task AddAsync(FiscalInvoice invoice, CancellationToken cancellationToken)
+    public async Task<IReadOnlyCollection<FiscalInvoice>> GetAdvanceSettlementsAsync(Guid advanceInvoiceId, CancellationToken cancellationToken) =>
+        (await Query().Where(x => x.OriginalInvoiceId == advanceInvoiceId && x.AdvanceSettlementFinalInvoiceId != null)
+            .ToArrayAsync(cancellationToken)).Select(ToDomain).ToArray();
+
+    public async Task CancelUnsubmittedAsync(Guid invoiceId, CancellationToken cancellationToken, AuditEntry? auditEntry = null)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var record = await LockInvoiceAsync(invoiceId, cancellationToken);
+        if (record.Status == "Cancelled") return;
+        var invoice = ToDomain(record);
+        try { invoice.CancelUnsubmitted(); }
+        catch (InvalidOperationException exception)
+        { throw new FiscalInvoiceOperationException("INVOICE_CANNOT_BE_CANCELLED", exception.Message); }
+        ApplyMutable(record, invoice);
+        AddAudit(auditEntry);
+        await dbContext.FiscalAdvanceUsages.Where(x => x.FinalInvoiceId == invoiceId && x.ReleasedAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.ReleasedAt, DateTimeOffset.UtcNow), cancellationToken);
+        await dbContext.FiscalSummaryOrders.Where(x => x.SummaryInvoiceId == invoiceId && x.ReleasedAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.ReleasedAt, DateTimeOffset.UtcNow), cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task<AdvanceUsageSnapshot?> GetAdvanceUsageAsync(
+        Guid advanceInvoiceId,
+        CancellationToken cancellationToken)
+    {
+        var advance = await dbContext.FiscalInvoices
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == advanceInvoiceId, cancellationToken);
+        if (advance is null ||
+            !string.Equals(advance.InvoiceType, InvoiceType.Advance.ToString(), StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(advance.Iic))
+        {
+            return null;
+        }
+
+        var usageRecords = await dbContext.FiscalAdvanceUsages
+            .AsNoTracking()
+            .Include(x => x.FinalInvoice)
+            .Where(x => x.AdvanceInvoiceId == advanceInvoiceId && x.ReleasedAt == null)
+            .OrderBy(x => x.CreatedAt)
+            .ToArrayAsync(cancellationToken);
+        var settlements = await dbContext.FiscalInvoices.AsNoTracking()
+            .Where(x => x.OriginalInvoiceId == advanceInvoiceId && x.AdvanceSettlementFinalInvoiceId != null && x.Status != "Cancelled")
+            .ToArrayAsync(cancellationToken);
+        var usages = usageRecords.Select(x => new AdvanceUsageEntry(
+                x.FinalInvoiceId,
+                x.FinalInvoice.InvoiceNumber,
+                x.UsedAmount,
+                Enum.Parse<FiscalStatus>(x.FinalInvoice.Status),
+                settlements.SingleOrDefault(s => s.AdvanceSettlementFinalInvoiceId == x.FinalInvoiceId)?.Id,
+                settlements.SingleOrDefault(s => s.AdvanceSettlementFinalInvoiceId == x.FinalInvoiceId) is { } settlement
+                    ? Enum.Parse<FiscalStatus>(settlement.Status) : null))
+            .ToArray();
+
+        var hasFullStorno = await dbContext.FiscalInvoices.AnyAsync(x => x.OriginalInvoiceId == advanceInvoiceId &&
+            x.AdvanceSettlementFinalInvoiceId == null && x.Status != "Cancelled", cancellationToken);
+        return new(
+            advance.Id,
+            advance.Iic,
+            advance.TotalAmount,
+            usages.Sum(x => x.UsedAmount),
+            usages,
+            advance.Status == "Fiscalized" && !hasFullStorno);
+    }
+
+    public async Task AddAsync(FiscalInvoice invoice, CancellationToken cancellationToken, AuditEntry? auditEntry = null)
     {
         var record = ToRecord(invoice);
-        dbContext.FiscalInvoices.Add(record);
+        var referencedAdvances = invoice.Payments.Where(payment => payment.AdvanceInvoiceId.HasValue)
+            .Select(payment => payment.AdvanceInvoiceId!.Value).ToArray();
+        var advancePayments = invoice.Payments
+            .Where(payment => payment.PaymentType == PaymentType.Advance && invoice.InvoiceType == InvoiceType.Normal)
+            .GroupBy(payment => payment.AdvanceInvoiceId)
+            .ToArray();
 
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted,
+            cancellationToken);
+        await PrepareOrderSummaryAsync(invoice, auditEntry, cancellationToken);
+        var restorationSettlement = invoice.IsAdvanceRestoration && invoice.OriginalInvoiceId.HasValue
+            ? await GetByIdAsync(invoice.OriginalInvoiceId.Value, cancellationToken) : null;
+        var lockIds = referencedAdvances
+            .Concat(invoice.OriginalInvoiceId is { } originalId ? new[] { originalId } : [])
+            .Concat(invoice.AdvanceSettlementFinalInvoiceId is { } finalIdToLock ? new[] { finalIdToLock } : [])
+            .Concat(invoice.AdvanceRestorationStornoInvoiceId is { } stornoToLock ? new[] { stornoToLock } : [])
+            .Concat(restorationSettlement?.OriginalInvoiceId is { } restorationAdvanceId ? new[] { restorationAdvanceId } : [])
+            .Distinct().OrderBy(x => x).ToArray();
+        var locked = new Dictionary<Guid, FiscalInvoiceRecord>();
+        foreach (var id in lockIds) locked[id] = await LockInvoiceAsync(id, cancellationToken);
+        if (invoice.IsAdvanceRestoration)
+        {
+            var settlement = ToDomain(locked[invoice.OriginalInvoiceId!.Value]);
+            var storno = ToDomain(locked[invoice.AdvanceRestorationStornoInvoiceId!.Value]);
+            try { _ = FiscalInvoice.CreateAdvanceRestoration(settlement, storno, invoice.InvoiceNumber, invoice.IssueDateTime, invoice.IdempotencyKey); }
+            catch (InvalidOperationException exception)
+            { throw new FiscalInvoiceOperationException("ADVANCE_RESTORATION_INVALID", exception.Message); }
+            if (await dbContext.FiscalInvoices.AnyAsync(x => x.OriginalInvoiceId == settlement.Id && x.Status != "Cancelled", cancellationToken))
+                throw new FiscalInvoiceOperationException("ADVANCE_RESTORATION_ALREADY_EXISTS", "Obnova avansa već postoji.");
+            if (!await dbContext.FiscalAdvanceUsages.AnyAsync(x => x.AdvanceInvoiceId == settlement.OriginalInvoiceId &&
+                x.FinalInvoiceId == settlement.AdvanceSettlementFinalInvoiceId && x.ReleasedAt == null, cancellationToken))
+                throw new FiscalInvoiceOperationException("ADVANCE_RESERVATION_MISSING", "Nedostaje aktivna rezervacija za obnovu.");
+        }
+        else if (invoice.OriginalInvoiceId is { } finalSourceId && locked[finalSourceId].InvoiceType == "Normal" && referencedAdvances.Length > 0)
+        {
+            var final = ToDomain(locked[finalSourceId]);
+            AdvanceStornoRules.EnsureFinalStornoReference(invoice, final);
+            if (final.Status != FiscalStatus.Fiscalized)
+                throw new FiscalInvoiceOperationException("ORIGINAL_INVOICE_NOT_FISCALIZED", "Konačni račun više nije raspoloživ za storno.");
+            var settlements = await GetAdvanceSettlementsAsync(referencedAdvances.Single(), cancellationToken);
+            var settlement = settlements.SingleOrDefault(x => x.AdvanceSettlementFinalInvoiceId == final.Id && x.Status != FiscalStatus.Cancelled);
+            if (settlement is not null)
+            {
+                // Serialize cancellation against the separate submission claim on the reduction document.
+                settlement = ToDomain(await LockInvoiceAsync(settlement.Id, cancellationToken));
+                AdvanceStornoRules.EnsureSettlementResolved(final, settlement);
+                if (settlement.Status == FiscalStatus.ReadyForFiscalization)
+                {
+                    settlement.CancelUnsubmitted();
+                    ApplyMutable(await dbContext.FiscalInvoices.SingleAsync(x => x.Id == settlement.Id, cancellationToken), settlement);
+                    if (auditEntry is not null)
+                        AddAudit(new("FISCAL_ADVANCE_REDUCTION_CANCELLED_FOR_STORNO", settlement.Id, settlement.CompanyId,
+                            auditEntry.CorrelationId, auditEntry.Actor, DateTimeOffset.UtcNow,
+                            new Dictionary<string, string?> { ["finalInvoiceId"] = final.Id.ToString(), ["stornoInvoiceId"] = invoice.Id.ToString() }));
+                }
+            }
+            if (!await dbContext.FiscalAdvanceUsages.AnyAsync(x => x.FinalInvoiceId == final.Id && x.ReleasedAt == null, cancellationToken))
+                throw new FiscalInvoiceOperationException("ADVANCE_RESERVATION_MISSING", "Konačni račun nema aktivnu rezervaciju avansa.");
+        }
+        foreach (var group in advancePayments.OrderBy(x => x.Key))
+        {
+            if (!group.Key.HasValue)
+            {
+                throw new FiscalInvoiceOperationException(
+                    "ADVANCE_REFERENCE_REQUIRED",
+                    "Plaćanje avansom nema referencu na avansni račun.");
+            }
+
+            var advanceId = group.Key.Value;
+            var advance = locked[advanceId];
+            var alreadyUsed = await dbContext.FiscalAdvanceUsages
+                .Where(x => x.AdvanceInvoiceId == advanceId && x.ReleasedAt == null)
+                .SumAsync(x => (decimal?)x.UsedAmount, cancellationToken) ?? 0m;
+            var requested = group.Sum(payment => payment.Amount);
+            AdvanceInvoiceRules.EnsureAvailable(ToDomain(advance), invoice, requested, alreadyUsed);
+            if (await dbContext.FiscalInvoices.AnyAsync(x => x.OriginalInvoiceId == advanceId &&
+                x.AdvanceSettlementFinalInvoiceId == null && x.Status != "Cancelled", cancellationToken))
+                throw new FiscalInvoiceOperationException("ADVANCE_STORNO_PENDING", "Za avans već postoji storno.");
+            var finalEnvironment = await dbContext.BusinessUnits.Where(x => x.Id == invoice.BusinessUnitId)
+                .Select(x => x.Environment).SingleAsync(cancellationToken);
+            var sourceEnvironment = await dbContext.BusinessUnits.Where(x => x.Id == advance.BusinessUnitId)
+                .Select(x => x.Environment).SingleAsync(cancellationToken);
+            if (finalEnvironment != sourceEnvironment)
+                throw new FiscalInvoiceOperationException("ADVANCE_ENVIRONMENT_MISMATCH", "Testni i produkcioni avansi se ne smiju povezivati.");
+        }
+
+        if (invoice.OriginalInvoiceId is { } sourceId && locked[sourceId].InvoiceType == "Advance")
+        {
+            var advance = ToDomain(locked[sourceId]);
+            if (invoice.AdvanceSettlementFinalInvoiceId is null)
+            {
+                if (await dbContext.FiscalAdvanceUsages.AnyAsync(x => x.AdvanceInvoiceId == sourceId && x.ReleasedAt == null, cancellationToken))
+                    throw new FiscalInvoiceOperationException("ADVANCE_ALREADY_USED", "Avans je rezervisan ili iskorišćen i ne može se potpuno stornirati.");
+            }
+            else
+            {
+                var finalId = invoice.AdvanceSettlementFinalInvoiceId.Value;
+                var final = await Query().SingleAsync(x => x.Id == finalId, cancellationToken);
+                if (final.Status != "Fiscalized" || advance.Status != FiscalStatus.Fiscalized)
+                    throw new FiscalInvoiceOperationException("ADVANCE_SETTLEMENT_INVALID", "Avans i konačni račun moraju biti fiskalizovani.");
+                if (await dbContext.FiscalInvoices.AnyAsync(x => x.OriginalInvoiceId == finalId && x.AdvanceSettlementFinalInvoiceId == null && x.Status != "Cancelled", cancellationToken))
+                    throw new FiscalInvoiceOperationException("FINAL_STORNO_EXISTS", "Za konačni račun već postoji storno; umanjenje se više ne može pripremiti.");
+                var reservation = await dbContext.FiscalAdvanceUsages.SingleOrDefaultAsync(x =>
+                    x.AdvanceInvoiceId == sourceId && x.FinalInvoiceId == finalId && x.ReleasedAt == null, cancellationToken);
+                if (reservation is null || reservation.UsedAmount != -invoice.TotalGrossAmount)
+                    throw new FiscalInvoiceOperationException("ADVANCE_SETTLEMENT_INVALID", "Umanjenje ne odgovara rezervisanom avansu.");
+                var previous = await GetAdvanceSettlementsAsync(sourceId, cancellationToken);
+                if (previous.Any(x => x.AdvanceSettlementFinalInvoiceId == finalId && x.Status != FiscalStatus.Cancelled))
+                    throw new FiscalInvoiceOperationException("ADVANCE_SETTLEMENT_ALREADY_EXISTS", "Umanjenje za ovaj konačni račun već postoji.");
+                AdvanceInvoiceRules.EnsureSettlementAllocationAvailable(advance, invoice, previous);
+            }
+        }
+
+        dbContext.FiscalInvoices.Add(record);
+        AddAudit(auditEntry);
+        await SaveNewInvoiceAsync(record, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private async Task<FiscalInvoiceRecord> LockInvoiceAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var record = await dbContext.FiscalInvoices
+            .FromSqlInterpolated($"SELECT * FROM fiscal.fiscal_invoices WHERE \"Id\" = {id} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new FiscalInvoiceOperationException("FISCAL_INVOICE_NOT_FOUND", "Račun nije pronađen.", 404);
+        await dbContext.Entry(record).ReloadAsync(cancellationToken);
+        await dbContext.Entry(record).Collection(x => x.Items).LoadAsync(cancellationToken);
+        await dbContext.Entry(record).Collection(x => x.Payments).LoadAsync(cancellationToken);
+        return record;
+    }
+
+    private void AddAudit(AuditEntry? entry)
+    {
+        if (entry is null) return;
+        dbContext.FiscalAudits.Add(new()
+        {
+            CompanyId = entry.CompanyId, Action = entry.Action,
+            CorrelationId = entry.CorrelationId, Actor = entry.Actor,
+            CreatedAt = entry.OccurredAt.ToUniversalTime(), UpdatedAt = entry.OccurredAt.ToUniversalTime(),
+            DataJson = JsonSerializer.Serialize(new { entry.InvoiceId, Data = entry.Data })
+        });
+    }
+
+    private async Task SaveNewInvoiceAsync(
+        FiscalInvoiceRecord record,
+        CancellationToken cancellationToken)
+    {
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -70,28 +285,61 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
 
     public async Task UpdateAsync(FiscalInvoice invoice, CancellationToken cancellationToken)
     {
-        var record = await dbContext.FiscalInvoices
-            .SingleOrDefaultAsync(x => x.Id == invoice.Id, cancellationToken)
-            ?? throw new InvalidOperationException("Račun koji se ažurira ne postoji.");
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var record = await LockInvoiceAsync(invoice.Id, cancellationToken);
+        if (invoice.Status == FiscalStatus.FiscalizationPending && record.Status is not ("ReadyForFiscalization" or "FiscalizationFailed"))
+            throw new FiscalInvoiceOperationException("INVOICE_STATE_CONFLICT", "Račun je već preuzet za slanje ili otkazan.");
 
         ApplyMutable(record, invoice);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task CompleteCorrectiveAsync(
         FiscalInvoice corrective,
         FiscalInvoice original,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AuditEntry? auditEntry = null)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        var correctiveRecord = await dbContext.FiscalInvoices.SingleAsync(
-            x => x.Id == corrective.Id,
-            cancellationToken);
-        var originalRecord = await dbContext.FiscalInvoices.SingleAsync(
-            x => x.Id == original.Id,
-            cancellationToken);
+        var sourceAdvanceId = corrective.IsAdvanceRestoration ? original.OriginalInvoiceId
+            : corrective.Payments.SingleOrDefault(x => x.PaymentType == PaymentType.Advance)?.AdvanceInvoiceId;
+        var ids = new[] { corrective.Id, original.Id }
+            .Concat(sourceAdvanceId.HasValue ? new[] { sourceAdvanceId.Value } : [])
+            .Concat(corrective.AdvanceRestorationStornoInvoiceId is { } stornoId ? new[] { stornoId } : [])
+            .Distinct().OrderBy(x => x).ToArray();
+        var locked = new Dictionary<Guid, FiscalInvoiceRecord>();
+        foreach (var id in ids) locked[id] = await LockInvoiceAsync(id, cancellationToken);
+        var correctiveRecord = locked[corrective.Id];
+        var originalRecord = locked[original.Id];
+        if (correctiveRecord.Status is "Fiscalized" or "StornoCreated" && correctiveRecord.Jikr != corrective.Jikr)
+            throw new FiscalInvoiceOperationException("FISCAL_RECOVERY_JIKR_CONFLICT", "Dokument već ima drugi JIKR.");
+
+        if (sourceAdvanceId.HasValue)
+        {
+            var finalId = corrective.IsAdvanceRestoration ? original.AdvanceSettlementFinalInvoiceId!.Value : original.Id;
+            var release = corrective.IsAdvanceRestoration;
+            if (corrective.IsAdvanceRestoration)
+            {
+                var finalStorno = locked[corrective.AdvanceRestorationStornoInvoiceId!.Value];
+                if (finalStorno.Status != "Fiscalized" || finalStorno.OriginalInvoiceId != finalId)
+                    throw new FiscalInvoiceOperationException("ADVANCE_RESTORATION_NOT_READY", "Storno konačnog računa nije fiskalizovan.");
+            }
+            else
+            {
+                var settlements = await GetAdvanceSettlementsAsync(sourceAdvanceId.Value, cancellationToken);
+                var settlement = settlements.SingleOrDefault(x => x.AdvanceSettlementFinalInvoiceId == finalId && x.Status != FiscalStatus.Cancelled);
+                AdvanceStornoRules.EnsureSettlementResolved(ToDomain(originalRecord), settlement);
+                release = settlement is null;
+            }
+            if (release)
+                await dbContext.FiscalAdvanceUsages.Where(x => x.AdvanceInvoiceId == sourceAdvanceId.Value &&
+                    x.FinalInvoiceId == finalId && x.ReleasedAt == null)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.ReleasedAt, DateTimeOffset.UtcNow), cancellationToken);
+        }
         ApplyMutable(correctiveRecord, corrective);
         ApplyMutable(originalRecord, original);
+        AddAudit(auditEntry);
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
@@ -114,6 +362,9 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
         return new FiscalInvoiceRecord
         {
             Id = invoice.Id,
+            OrderSummaryJson = invoice.OrderSummary is null ? null : JsonSerializer.Serialize(invoice.OrderSummary),
+            IsOrderCorrection = invoice.IsOrderCorrection,
+            IsSummaryCorrection = invoice.IsSummaryCorrection,
             CompanyId = invoice.CompanyId,
             BusinessUnitId = invoice.BusinessUnitId,
             DeviceId = invoice.DeviceId,
@@ -139,6 +390,13 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
             OriginalIssueDateTime = invoice.OriginalIssueDateTime,
             CorrectiveType = invoice.CorrectiveType?.ToString(),
             CorrectionReason = invoice.CorrectionReason,
+            AdvanceSettlementFinalInvoiceId = invoice.AdvanceSettlementFinalInvoiceId,
+            AdvanceSettlementFinalIic = invoice.AdvanceSettlementFinalIic,
+            AdvanceSettlementFinalIssuedAt = invoice.AdvanceSettlementFinalIssuedAt?.ToUniversalTime(),
+            AdvanceSettlementAllocationsJson = JsonSerializer.Serialize(invoice.AdvanceSettlementAllocations),
+            AdvanceRestorationStornoInvoiceId = invoice.AdvanceRestorationStornoInvoiceId,
+            AdvanceRestorationStornoIic = invoice.AdvanceRestorationStornoIic,
+            AdvanceRestorationStornoIssuedAt = invoice.AdvanceRestorationStornoIssuedAt?.ToUniversalTime(),
             NetAmount = invoice.TotalNetAmount,
             VatAmount = invoice.TotalVatAmount,
             TotalAmount = invoice.TotalGrossAmount,
@@ -179,9 +437,25 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
                 PaymentType = payment.PaymentType.ToString(),
                 Amount = payment.Amount,
                 Reference = payment.Reference,
+                AdvanceInvoiceId = payment.AdvanceInvoiceId,
+                AdvanceIic = payment.AdvanceIic,
                 CreatedAt = invoice.CreatedAt,
                 UpdatedAt = invoice.UpdatedAt
-            }).ToList()
+            }).ToList(),
+            AdvanceUsages = invoice.InvoiceType == InvoiceType.Normal
+                ? invoice.Payments
+                    .Where(payment => payment.PaymentType == PaymentType.Advance && payment.AdvanceInvoiceId.HasValue)
+                    .GroupBy(payment => new { AdvanceInvoiceId = payment.AdvanceInvoiceId!.Value, payment.AdvanceIic })
+                    .Select(group => new FiscalAdvanceUsageRecord
+                    {
+                        Id = Guid.NewGuid(),
+                        AdvanceInvoiceId = group.Key.AdvanceInvoiceId,
+                        AdvanceIic = group.Key.AdvanceIic!,
+                        UsedAmount = group.Sum(payment => payment.Amount),
+                        CreatedAt = invoice.CreatedAt,
+                        UpdatedAt = invoice.UpdatedAt
+                    }).ToList()
+                : []
         };
     }
 
@@ -235,7 +509,15 @@ public sealed class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbCon
                 x.Id,
                 Enum.Parse<PaymentType>(x.PaymentType),
                 x.Amount,
-                x.Reference)));
+                x.Reference,
+                x.AdvanceInvoiceId,
+                x.AdvanceIic)),
+            record.AdvanceSettlementFinalInvoiceId,
+            record.AdvanceSettlementFinalIic,
+            record.AdvanceSettlementFinalIssuedAt,
+            JsonSerializer.Deserialize<AdvanceSettlementAllocation[]>(record.AdvanceSettlementAllocationsJson),
+            record.AdvanceRestorationStornoInvoiceId, record.AdvanceRestorationStornoIic, record.AdvanceRestorationStornoIssuedAt,
+            record.OrderSummaryJson is null ? null : JsonSerializer.Deserialize<OrderSummaryData>(record.OrderSummaryJson));
 
     private static void ApplyMutable(FiscalInvoiceRecord record, FiscalInvoice invoice)
     {

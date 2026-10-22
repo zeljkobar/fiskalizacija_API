@@ -72,7 +72,17 @@ Napraviti stabilan, testiran i dokumentovan **Fiscal API** koji može:
 8. sačuvati sve zahtjeve, odgovore i greške;
 9. podržati retry i offline režim.
 
-## Trenutni status — 02.08.2026.
+## Dopuna 22.10.2026. — avansi u lokalnoj verziji
+
+Implementirani su bankovni avansni račun, djelimično/potpuno korišćenje jednog avansa na konačnom računu, atomske rezervacije, pregled salda, posebno korektivno umanjenje avansa po konačnom računu, otkazivanje neposlatog dokumenta i storno neiskorišćenog avansa. Detaljan ugovor i granice podrške su u [`docs/ADVANCE_INVOICES.md`](docs/ADVANCE_INVOICES.md). Migracija i kod nijesu ovim korakom postavljeni na produkciju. `global.json` prihvata novije .NET 10 SDK feature verzije, uključujući 10.0.402 instaliran ažuriranjem Visual Studija.
+
+Dopunjen je i storno konačnog računa plaćenog avansom: vraćanje na saldo, poništenje prethodno fiskalizovanog umanjenja zasebnim pozitivnim korektivnim dokumentom, praćenje nedovršenog procesa i oporavak bez ponovnog slanja PU. Saldo se oslobađa tek poslije svih potrebnih JIKR-ova. I ova dopuna je lokalna, sa zasebnom migracijom i testovima.
+
+## Lokalna dopuna — ORDER i sumarni računi
+
+Lokalna dopuna od 22.10.2026. uključuje i ORDER/sumarni workflow: zatvaranje izvornog prometa, djelimične/potpune korekcije, informativno usklađenje, poništenje i zamjenu sumarnog, atomske veze i recovery. Ugovor i granice su u [`docs/ORDER_SUMMARY_WORKFLOW.md`](docs/ORDER_SUMMARY_WORKFLOW.md). Produkcija i postojeći `BankOnly` profil nijesu promijenjeni; migracija i novi PU test slijede odvojeno.
+
+## Prethodno potvrđeno produkciono stanje — 02.08.2026.
 
 Osnovni Fiscal API, kupac na računu, atomska numeracija, potpuni storno, testna i produkciona fiskalizacija, šifrovano upravljanje sertifikatom, granularna administracija, produkcioni profil i registracija produkcionog ENU-a su implementirani. Firma je u stanju `ProductionActive`, a prvi stvarni bezgotovinski račun uspješno je fiskalizovan 02.08.2026.
 

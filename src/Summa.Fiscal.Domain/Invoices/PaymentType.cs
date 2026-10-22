@@ -6,5 +6,7 @@ public enum PaymentType
     Card = 1,
     BankAccount = 2,
     Voucher = 3,
-    Other = 4
+    Other = 4,
+    Advance = 5,
+    Order = 6
 }

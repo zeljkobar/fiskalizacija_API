@@ -79,6 +79,8 @@ Opcioni child elementi:
 
 ### InvoiceSType
 
+Lokalni ORDER/sumarni workflow mapira `Normal`/`Order` na `INVOICE`/`CASH` sa jedinim `ORDER` plaćanjem. Sumarni koristi `SUMMARY`, stvarno plaćanje i `IICRefs` svih referenciranih ORDER dokumenata sa njihovim sačuvanim potpisanim iznosima. `SameTax/@NumOfItems` broji izvorne dokumente po stopi, ne artikle. `Items` se ne šalje za informativni sumarni i njegove korekcije. ORDER korekcija koristi `CORRECTIVE` i `CorrectiveInv` na izvorni ORDER, a sumarna korekcija/poništenje `CorrectiveInv` na izvorni sumarni. Granice lokalne provjere i ugovor su u `docs/ORDER_SUMMARY_WORKFLOW.md`; live PU potvrda je poseban korak.
+
 `CASH`, `NONCASH`
 
 ### PaymentMethodTypeSType
@@ -86,9 +88,13 @@ Opcioni child elementi:
 `BANKNOTE`, `CARD`, `BUSINESSCARD`, `SVOUCHER`, `COMPANY`, `ORDER`,
 `ADVANCE`, `ACCOUNT`, `FACTORING`, `OTHER`, `OTHER-CASH`
 
+`Invoice/PayMethods` ima XSD ograničenje `UniquePayMethodType`: tip plaćanja je jedinstven unutar jednog računa. Trenutni API zato dozvoljava samo jednu `ADVANCE` stavku sa jednim `AdvIIC` na konačnom računu. Umanjenje avansa koristi `CorrectiveInv` za avans i `IICRefs/IICRef` za konačni račun, prema funkcionalnoj specifikaciji v5, poglavlje 5.8. Implementacioni ugovor je u [`../docs/ADVANCE_INVOICES.md`](../docs/ADVANCE_INVOICES.md).
+
 ### CorrectiveInvTypeSType
 
 `CORRECTIVE`, `ERROR_CORRECTIVE`
+
+Kontrolisano poništenje prethodnog negativnog umanjenja avansa ostaje `InvType="CORRECTIVE"` i `CorrectiveInv/@Type="CORRECTIVE"`. `CorrectiveInv/@IICRef` referencira negativno umanjenje, iznosi/stavke/plaćanje su njegova tačna pozitivna inverzija, a `IICRefs/IICRef` referencira storno konačnog računa sa negativnim iznosom njegovog avansnog plaćanja. Osnova je funkcionalna specifikacija v5 §5.5 (korektivni račun za prethodni korektivni račun), povezana sa §5.8. Obični puni storno i dalje ima negativne iznose. XSD/potpis su lokalno provjereni; live prihvatanje novog toka nije provjeravano ovim zadatkom.
 
 ### ExemptFromVATSType
 

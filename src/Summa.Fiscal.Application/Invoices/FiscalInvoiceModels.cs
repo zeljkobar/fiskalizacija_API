@@ -42,7 +42,8 @@ public sealed record CreateFiscalInvoiceItem(
 public sealed record CreateFiscalPayment(
     PaymentType PaymentType,
     decimal Amount,
-    string? Reference);
+    string? Reference,
+    Guid? AdvanceInvoiceId = null);
 
 public sealed record CreateStornoCommand(
     Guid OriginalInvoiceId,
@@ -52,6 +53,31 @@ public sealed record CreateStornoCommand(
     string IdempotencyKey,
     string CorrelationId,
     string Actor);
+
+public sealed record CreateAdvanceSettlementCommand(
+    Guid AdvanceInvoiceId, Guid FinalInvoiceId, DateTimeOffset IssueDateTime,
+    IReadOnlyCollection<AdvanceSettlementAllocation> Allocations,
+    string IdempotencyKey, string CorrelationId, string Actor);
+
+public sealed record CreateAdvanceRestorationCommand(
+    Guid StornoInvoiceId, DateTimeOffset IssueDateTime,
+    string IdempotencyKey, string CorrelationId, string Actor);
+
+public sealed record AdvanceStornoWorkflowResult(
+    Guid FinalInvoiceId, Guid AdvanceInvoiceId, decimal AdvanceAmount,
+    Guid? StornoInvoiceId, FiscalStatus? StornoStatus,
+    Guid? SettlementInvoiceId, FiscalStatus? SettlementStatus,
+    Guid? RestorationInvoiceId, FiscalStatus? RestorationStatus,
+    bool AdvanceReleased)
+{
+    public string AdvanceTreatment => "ReturnToAdvance";
+    public string Stage => StornoInvoiceId is null ? "NotStarted"
+        : StornoStatus == FiscalStatus.Cancelled ? "Cancelled"
+        : StornoStatus != FiscalStatus.Fiscalized ? "AwaitingStornoFiscalization"
+        : AdvanceReleased ? "Completed"
+        : RestorationInvoiceId is null ? "AwaitingAdvanceRestoration"
+        : "AwaitingAdvanceRestorationFiscalization";
+}
 
 public sealed record FiscalBuyerResult(
     BuyerIdentificationType IdentificationType,
@@ -72,12 +98,40 @@ public sealed record FiscalInvoiceItemResult(
     decimal DiscountAmount,
     decimal NetAmount,
     decimal VatAmount,
-    decimal GrossAmount);
+    decimal GrossAmount,
+    Guid Id);
 
 public sealed record FiscalPaymentResult(
     PaymentType PaymentType,
     decimal Amount,
-    string? Reference);
+    string? Reference,
+    Guid? AdvanceInvoiceId,
+    string? AdvanceIic);
+
+public sealed record AdvanceUsageResult(
+    Guid FinalInvoiceId,
+    string FinalInvoiceNumber,
+    decimal UsedAmount,
+    FiscalStatus FinalInvoiceStatus,
+    Guid? SettlementInvoiceId,
+    FiscalStatus? SettlementStatus);
+
+public sealed record AdvanceBalanceResult(
+    Guid AdvanceInvoiceId,
+    string AdvanceIic,
+    decimal TotalAmount,
+    decimal UsedAmount,
+    decimal RemainingAmount,
+    IReadOnlyCollection<AdvanceUsageResult> Usages,
+    decimal ReservedAmount,
+    bool IsAvailable)
+{
+    public decimal UnsettledAmount => Usages
+        .Where(x => x.FinalInvoiceStatus == FiscalStatus.Fiscalized && x.SettlementStatus != FiscalStatus.Fiscalized)
+        .Sum(x => x.UsedAmount);
+    public decimal PendingRestorationAmount => Usages
+        .Where(x => x.FinalInvoiceStatus == FiscalStatus.StornoCreated).Sum(x => x.UsedAmount);
+}
 
 public sealed record FiscalInvoiceResult(
     Guid Id,
@@ -106,7 +160,18 @@ public sealed record FiscalInvoiceResult(
     IReadOnlyCollection<FiscalInvoiceItemResult> Items,
     IReadOnlyCollection<FiscalPaymentResult> Payments,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? FiscalizedAt);
+    DateTimeOffset? FiscalizedAt,
+    Guid? AdvanceSettlementFinalInvoiceId = null,
+    string? AdvanceSettlementFinalIic = null,
+    IReadOnlyCollection<AdvanceSettlementAllocation>? AdvanceSettlementAllocations = null,
+    Guid? AdvanceRestorationStornoInvoiceId = null,
+    string? AdvanceRestorationStornoIic = null,
+    OrderSummaryData? OrderSummary = null,
+    bool IsInformational = false)
+{
+    public decimal AdvanceAppliedAmount => Payments.Where(x => x.PaymentType == PaymentType.Advance).Sum(x => x.Amount);
+    public decimal AmountToPayAfterAdvance => TotalGrossAmount - AdvanceAppliedAmount;
+}
 
 public sealed record FiscalInvoiceStatusResult(
     Guid Id,

@@ -105,6 +105,16 @@ public sealed class RegisterInvoiceXmlBuilderV5 : IRegisterInvoiceXmlBuilderV5
                 invoice.SameTaxes.Select(BuildSameTax)));
         }
 
+        if (invoice.InvoiceReferences is { Count: > 0 })
+        {
+            element.Add(new XElement(PuFiscalContractV5.Schema + "IICRefs",
+                invoice.InvoiceReferences.Select(reference => new XElement(
+                    PuFiscalContractV5.Schema + "IICRef",
+                    new XAttribute("IIC", reference.Iic),
+                    new XAttribute("IssueDateTime", FormatDateTime(reference.IssueDateTime)),
+                    new XAttribute("Amount", FormatDecimal2(reference.Amount))))));
+        }
+
         return element;
     }
 

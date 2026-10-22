@@ -6,6 +6,7 @@
 # dotenv files
 .env
 local-secrets/
+.tools/
 deploy/backups/
 deploy/data/
 deploy/transfer/

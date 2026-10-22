@@ -26,7 +26,7 @@ public sealed class FiscalInvoiceValidator : IFiscalInvoiceValidator
 
         ValidateRequiredIds(invoice, errors);
 
-        if (invoice.InvoiceType is not (InvoiceType.Normal or InvoiceType.Corrective))
+        if (invoice.InvoiceType is not (InvoiceType.Normal or InvoiceType.Advance or InvoiceType.Corrective or InvoiceType.Summary))
         {
             errors.Add(new("INVOICE_TYPE_NOT_IMPLEMENTED", "invoiceType", "Ovaj tip računa još nema kompletan poslovni workflow."));
         }
@@ -41,7 +41,7 @@ public sealed class FiscalInvoiceValidator : IFiscalInvoiceValidator
             errors.Add(new("CURRENCY_NOT_SUPPORTED", "currency", "U ovoj fazi podržana je valuta EUR."));
         }
 
-        if (invoice.Items.Count == 0)
+        if (invoice.Items.Count == 0 && !invoice.IsInformational)
         {
             errors.Add(new("ITEMS_REQUIRED", "items", "Račun mora imati najmanje jednu stavku."));
         }
@@ -56,6 +56,23 @@ public sealed class FiscalInvoiceValidator : IFiscalInvoiceValidator
         ValidateCorrective(invoice, errors);
         ValidateItems(invoice, errors);
         ValidatePayments(invoice, errors);
+        if (invoice.IsInformational && (invoice.OrderSummary is null || invoice.OrderSummary.References.Count == 0 ||
+            invoice.OrderSummary.References.Sum(x => x.GrossAmount) != invoice.TotalGrossAmount ||
+            invoice.OrderSummary.References.Sum(x => x.NetAmount) != invoice.TotalNetAmount ||
+            invoice.OrderSummary.References.Sum(x => x.VatAmount) != invoice.TotalVatAmount))
+            errors.Add(new("SUMMARY_REFERENCES_INVALID", "orderSummary", "Iznosi moraju tačno odgovarati sačuvanim izvorima sumarnog dokumenta."));
+        if (invoice.InvoiceType == InvoiceType.Summary && invoice.TotalGrossAmount <= 0)
+            errors.Add(new("SUMMARY_TOTAL_INVALID", "totalGrossAmount", "Sumarni račun mora imati pozitivan iznos."));
+        if (invoice.Payments.Any(x => x.PaymentType == PaymentType.Order) &&
+            (invoice.Payments.Count != 1 || !(invoice.IsOrder || invoice.IsOrderCorrection)))
+            errors.Add(new("ORDER_PAYMENT_EXCLUSIVE", "payments", "ORDER mora biti jedini način plaćanja na običnom računu ili njegovoj kontrolisanoj korekciji."));
+        if (invoice.IsInformational && invoice.Payments.Any(x => x.PaymentType is not (PaymentType.Cash or PaymentType.Card or PaymentType.BankAccount)))
+            errors.Add(new("SUMMARY_PAYMENT_INVALID", "payments", "Navesti stvarno plaćanje: Cash, Card ili BankAccount, uključujući kombinacije."));
+        if (invoice.Payments.Count > 10 || invoice.Payments.GroupBy(x => x.PaymentType).Any(x => x.Count() > 1))
+            errors.Add(new("PAYMENT_TYPES_INVALID", "payments", "Najviše 10 različitih načina plaćanja; isti tip može biti naveden samo jednom."));
+        if (invoice.InvoiceType == InvoiceType.Advance &&
+            (invoice.Buyer is null || invoice.Payments.Count != 1 || invoice.Payments.Any(x => x.PaymentType != PaymentType.BankAccount)))
+            errors.Add(new("ADVANCE_BANK_RECEIPT_REQUIRED", "payments", "Avans zahtijeva identifikovanog kupca i jednu bezgotovinsku uplatu BankAccount."));
 
         var paymentsTotal = RoundMoney(invoice.Payments.Sum(payment => payment.Amount));
         if (paymentsTotal != invoice.TotalGrossAmount)
@@ -119,8 +136,12 @@ public sealed class FiscalInvoiceValidator : IFiscalInvoiceValidator
                 errors.Add(new("CORRECTIVE_REFERENCE_REQUIRED", "originalInvoiceId", "Korektivni račun mora imati kompletnu referencu na original."));
             if (string.IsNullOrWhiteSpace(invoice.CorrectionReason) || invoice.CorrectionReason.Length > 500)
                 errors.Add(new("CORRECTION_REASON_INVALID", "correctionReason", "Razlog korekcije je obavezan i može imati najviše 500 znakova."));
-            if (invoice.TotalGrossAmount >= 0)
-                errors.Add(new("CORRECTIVE_TOTAL_INVALID", "totalGrossAmount", "Potpuni storno mora imati negativan ukupan iznos."));
+            if (invoice.IsAdvanceRestoration ? invoice.TotalGrossAmount <= 0 : invoice.TotalGrossAmount >= 0)
+                errors.Add(new("CORRECTIVE_TOTAL_INVALID", "totalGrossAmount", "Predznak korektivnog iznosa ne odgovara vrsti operacije."));
+            if (invoice.IsAdvanceRestoration && (string.IsNullOrWhiteSpace(invoice.AdvanceRestorationStornoIic) || !invoice.AdvanceRestorationStornoIssuedAt.HasValue))
+                errors.Add(new("ADVANCE_RESTORATION_REFERENCE_REQUIRED", "advanceRestorationStornoInvoiceId", "Obnova mora imati kompletnu referencu na storno konačnog računa."));
+            if (invoice.OriginalIssueDateTime.HasValue && invoice.IssueDateTime < invoice.OriginalIssueDateTime.Value)
+                errors.Add(new("CORRECTIVE_DATE_INVALID", "issueDateTime", "Korektivni račun ne može prethoditi originalu."));
         }
         else if (invoice.OriginalInvoiceId.HasValue)
         {
@@ -135,13 +156,17 @@ public sealed class FiscalInvoiceValidator : IFiscalInvoiceValidator
         var index = 0;
         foreach (var item in invoice.Items)
         {
+            if ((invoice.IsOrder || invoice.IsOrderCorrection) &&
+                (decimal.Round(item.Quantity, 4) != item.Quantity || decimal.Round(item.UnitPrice, 4) != item.UnitPrice ||
+                 decimal.Round(item.VatRate, 4) != item.VatRate || decimal.Round(item.DiscountAmount, 2) != item.DiscountAmount))
+                errors.Add(new("ORDER_ITEM_PRECISION_INVALID", $"items[{index}]", "ORDER količine, cijene i stope imaju do četiri decimale, a popust do dvije."));
             if (string.IsNullOrWhiteSpace(item.Name))
                 errors.Add(new("ITEM_NAME_REQUIRED", $"items[{index}].name", "Naziv stavke je obavezan."));
-            if (invoice.InvoiceType == InvoiceType.Corrective ? item.Quantity >= 0 : item.Quantity <= 0)
+            if (!invoice.IsSummaryCancellation && invoice.InvoiceType != InvoiceType.Summary && (invoice.InvoiceType == InvoiceType.Corrective && !invoice.IsAdvanceRestoration ? item.Quantity >= 0 : item.Quantity <= 0))
                 errors.Add(new("ITEM_QUANTITY_INVALID", $"items[{index}].quantity", invoice.InvoiceType == InvoiceType.Corrective ? "Količina potpunog storna mora biti negativna." : "Količina mora biti veća od nule."));
             if (item.UnitPrice < 0)
                 errors.Add(new("ITEM_PRICE_INVALID", $"items[{index}].unitPrice", "Cijena ne može biti negativna."));
-            if (invoice.InvoiceType == InvoiceType.Corrective
+            if ((invoice.InvoiceType == InvoiceType.Corrective && !invoice.IsAdvanceRestoration && !invoice.IsSummaryCancellation) || (invoice.IsInformational && item.Quantity < 0)
                     ? item.DiscountAmount > 0 || Math.Abs(item.DiscountAmount) > Math.Abs(item.Quantity * item.UnitPrice)
                     : item.DiscountAmount < 0 || item.DiscountAmount > item.Quantity * item.UnitPrice)
                 errors.Add(new("ITEM_DISCOUNT_INVALID", $"items[{index}].discountAmount", "Popust nije ispravan."));
@@ -156,10 +181,30 @@ public sealed class FiscalInvoiceValidator : IFiscalInvoiceValidator
         ICollection<FiscalValidationError> errors)
     {
         var index = 0;
+        var advanceInvoiceIds = new HashSet<Guid>();
+        if (invoice.Payments.Count(x => x.PaymentType == PaymentType.Advance) > 1)
+            errors.Add(new("MULTIPLE_ADVANCE_PAYMENTS_NOT_SUPPORTED", "payments", "EFI v5 UniquePayMethodType dozvoljava samo jednu ADVANCE stavku plaćanja po računu."));
         foreach (var payment in invoice.Payments)
         {
-            if (invoice.InvoiceType == InvoiceType.Corrective ? payment.Amount >= 0 : payment.Amount <= 0)
+            if (!Enum.IsDefined(payment.PaymentType) || decimal.Round(payment.Amount, 2) != payment.Amount)
+                errors.Add(new("PAYMENT_FORMAT_INVALID", $"payments[{index}]", "Način plaćanja mora biti poznat, a iznos u centima."));
+            if (invoice.InvoiceType == InvoiceType.Corrective && !invoice.IsAdvanceRestoration ? payment.Amount >= 0 : payment.Amount <= 0)
                 errors.Add(new("PAYMENT_AMOUNT_INVALID", $"payments[{index}].amount", invoice.InvoiceType == InvoiceType.Corrective ? "Iznos povrata kod storna mora biti negativan." : "Iznos plaćanja mora biti veći od nule."));
+
+            if (payment.PaymentType == PaymentType.Advance)
+            {
+                if (invoice.IsAdvanceRestoration || invoice.InvoiceType is not (InvoiceType.Normal or InvoiceType.Corrective))
+                    errors.Add(new("ADVANCE_PAYMENT_NOT_ALLOWED", $"payments[{index}].paymentType", "Avans se može koristiti samo kao način plaćanja konačnog računa."));
+                if (!payment.AdvanceInvoiceId.HasValue || string.IsNullOrWhiteSpace(payment.AdvanceIic))
+                    errors.Add(new("ADVANCE_REFERENCE_REQUIRED", $"payments[{index}].advanceInvoiceId", "Plaćanje avansom mora imati fiskalizovani avans i njegov IKOF."));
+                else if (!advanceInvoiceIds.Add(payment.AdvanceInvoiceId.Value))
+                    errors.Add(new("ADVANCE_REFERENCE_DUPLICATE", $"payments[{index}].advanceInvoiceId", "Isti avans može biti naveden samo jednom na konačnom računu."));
+            }
+            else if (payment.AdvanceInvoiceId.HasValue || !string.IsNullOrWhiteSpace(payment.AdvanceIic))
+            {
+                errors.Add(new("ADVANCE_REFERENCE_NOT_ALLOWED", $"payments[{index}].advanceInvoiceId", "Referenca na avans dozvoljena je samo za način plaćanja Advance."));
+            }
+
             index++;
         }
     }

@@ -61,6 +61,91 @@ Assert(authorizer.Authorize(bootstrap, FiscalApiPermissions.ClientsAdmin).IsBoot
     "Bootstrap pristup mora ostati dostupan za inicijalizaciju i oporavak.");
 
 Console.WriteLine("Granularna administratorska autorizacija i tenant izolacija su provjerene.");
+await VerifyAdvanceEndpointPermissionsAsync();
+await VerifyOrderSummaryEndpointPermissionsAsync();
+await AdvancePostgreSqlChecks.RunAsync();
+
+static async Task VerifyAdvanceEndpointPermissionsAsync()
+{
+    var company = Guid.NewGuid();
+    var repository = new Summa.Fiscal.Infrastructure.Persistence.InMemoryFiscalInvoiceRepository();
+    var service = new Summa.Fiscal.Application.Invoices.FiscalInvoiceApplicationService(
+        repository, new Summa.Fiscal.Application.Invoices.FiscalInvoiceValidator(),
+        new Summa.Fiscal.Infrastructure.Audit.InMemoryAuditService(),
+        new Summa.Fiscal.Infrastructure.Persistence.InMemoryInvoiceNumberSequence());
+    var result = await service.CreateAsync(new(company, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
+        Summa.Fiscal.Domain.Invoices.InvoiceType.Advance, "1", DateTimeOffset.UtcNow, "EUR",
+        new(Summa.Fiscal.Domain.Invoices.BuyerIdentificationType.Tin, "12345678", "Kupac", null, null, "MNE", null),
+        null, null, null, [new("Test", 1, 121, 21, null, null, 0)],
+        [new(Summa.Fiscal.Domain.Invoices.PaymentType.BankAccount, 121, null)], "api-test", "api-test", "test"), default);
+    var controller = new Summa.Fiscal.Api.Controllers.FiscalInvoicesController(service, null!, new FiscalAccessAuthorizer(), null!);
+    controller.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
+    {
+        HttpContext = Context("other", "Other", [FiscalApiPermissions.InvoicesRead, FiscalApiPermissions.InvoicesStorno], [Guid.NewGuid()], null, null)
+    };
+    Assert((await controller.GetAdvanceBalance(result.Id, default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403,
+        "Druga firma ne smije čitati saldo avansa.");
+    Assert((await controller.GetAdvanceStornoWorkflow(result.Id, default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403,
+        "Druga firma ne smije čitati povezani storno workflow.");
+    Assert((await controller.CreateAdvanceRestoration(result.Id, new(DateTimeOffset.UtcNow, ""), default)
+        as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Druga firma ne smije pripremiti obnovu avansa.");
+    Assert((await controller.CreateAdvanceSettlement(result.Id, new(Guid.NewGuid(), DateTimeOffset.UtcNow, [], ""), default)
+        as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Druga firma ne smije pripremiti umanjenje.");
+    controller.ControllerContext.HttpContext = Context("reader", "Reader", [FiscalApiPermissions.InvoicesRead], [company], null, null);
+    Assert((await controller.CreateAdvanceRestoration(result.Id, new(DateTimeOffset.UtcNow, ""), default)
+        as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Obnova zahtijeva posebnu storno dozvolu.");
+    Assert((await controller.CancelUnsubmitted(result.Id, new($"CANCEL_UNSUBMITTED:{result.Id:D}"), default)
+        as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Čitalac ne smije otkazati rezervaciju.");
+    controller.ControllerContext.HttpContext = Context("owner", "Owner", [FiscalApiPermissions.InvoicesStorno], [company], null, null);
+    controller.ControllerContext.HttpContext.Request.Headers["Idempotency-Key"] = "test-restore";
+    Assert((await controller.CreateAdvanceRestoration(result.Id, new(DateTimeOffset.UtcNow, "wrong"), default)
+        as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 400, "Obnova mora zahtijevati tačnu potvrdu.");
+    Assert((await controller.CancelUnsubmitted(result.Id, new("wrong"), default)
+        as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 400, "Otkazivanje mora zahtijevati tačnu potvrdu.");
+    Assert((await service.GetAsync(result.Id, default))!.Status == Summa.Fiscal.Domain.Invoices.FiscalStatus.ReadyForFiscalization,
+        "Neovlašćeni pozivi su promijenili dokument.");
+    Console.WriteLine("Avansne rute provjeravaju firmu, dozvolu i eksplicitnu potvrdu.");
+}
+
+static async Task VerifyOrderSummaryEndpointPermissionsAsync()
+{
+    var company = Guid.NewGuid();
+    var repo = new Summa.Fiscal.Infrastructure.Persistence.InMemoryFiscalInvoiceRepository();
+    var service = new Summa.Fiscal.Application.Invoices.FiscalInvoiceApplicationService(repo,
+        new Summa.Fiscal.Application.Invoices.FiscalInvoiceValidator(), new Summa.Fiscal.Infrastructure.Audit.InMemoryAuditService(),
+        new Summa.Fiscal.Infrastructure.Persistence.InMemoryInvoiceNumberSequence());
+    var order = await service.CreateAsync(new(company, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
+        Summa.Fiscal.Domain.Invoices.InvoiceType.Normal, "1", DateTimeOffset.UtcNow, "EUR", null, null, null, null,
+        [new("Test", 1, 121, 21, null, null, 0)], [new(Summa.Fiscal.Domain.Invoices.PaymentType.Order, 121, null)],
+        "order-api", "test", "test"), default);
+    var controller = new Summa.Fiscal.Api.Controllers.OrderSummaryInvoicesController(service, new FiscalAccessAuthorizer());
+    controller.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
+    {
+        HttpContext = Context("foreign", "Foreign", [FiscalApiPermissions.InvoicesRead, FiscalApiPermissions.InvoicesCreate, FiscalApiPermissions.InvoicesStorno], [Guid.NewGuid()], null, null)
+    };
+    var summaryRequest = new Summa.Fiscal.Api.Controllers.CreateSummaryRequest(company, Guid.NewGuid(), Guid.NewGuid(), [order.Id],
+        DateTimeOffset.UtcNow, [new(Summa.Fiscal.Domain.Invoices.PaymentType.Card, 121, null)], $"CREATE_SUMMARY:{company:D}");
+    Assert((await controller.CreateSummary(summaryRequest, default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Tuđa firma ne smije kreirati sumarni.");
+    Assert((await controller.OrderWorkflow(order.Id, default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Tuđa firma ne smije čitati ORDER workflow.");
+    Assert((await controller.SummaryWorkflow(order.Id, default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Tuđa firma ne smije čitati sumarni workflow.");
+    Assert((await controller.CorrectOrder(order.Id, new(DateTimeOffset.UtcNow, "Test", [], ""), default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Tuđa firma ne smije korigovati ORDER.");
+    Assert((await controller.CorrectSummary(order.Id, new(DateTimeOffset.UtcNow, "Test", [], ""), default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Tuđa firma ne smije korigovati sumarni.");
+    Assert((await controller.CancelSummary(order.Id, new(DateTimeOffset.UtcNow, "Test", [], ""), default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Tuđa firma ne smije poništiti sumarni.");
+    controller.ControllerContext.HttpContext = Context("reader", "Reader", [FiscalApiPermissions.InvoicesRead], [company], null, null);
+    Assert((await controller.CreateSummary(summaryRequest, default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Čitalac ne smije pripremiti sumarni.");
+    Assert((await controller.CorrectOrder(order.Id, new(DateTimeOffset.UtcNow, "Test", [], ""), default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Čitalac ne smije korigovati ORDER.");
+    Assert((await controller.CorrectSummary(order.Id, new(DateTimeOffset.UtcNow, "Test", [], ""), default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Čitalac ne smije korigovati sumarni.");
+    Assert((await controller.CancelSummary(order.Id, new(DateTimeOffset.UtcNow, "Test", [], ""), default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 403, "Čitalac ne smije poništiti sumarni.");
+    controller.ControllerContext.HttpContext = Context("owner", "Owner", [FiscalApiPermissions.InvoicesCreate, FiscalApiPermissions.InvoicesStorno], [company], null, null);
+    Assert((await controller.CreateSummary(summaryRequest, default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 400, "Sumarni mora imati idempotency ključ.");
+    controller.HttpContext.Request.Headers["Idempotency-Key"] = "summary-test";
+    Assert((await controller.CreateSummary(summaryRequest with { Confirmation = "wrong" }, default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 400, "Sumarni mora imati tačnu potvrdu.");
+    Assert((await controller.CorrectOrder(order.Id, new(DateTimeOffset.UtcNow, "Test", [], "wrong"), default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 400, "ORDER korekcija mora imati tačnu potvrdu.");
+    Assert((await controller.CorrectSummary(order.Id, new(DateTimeOffset.UtcNow, "Test", [], "wrong"), default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 400, "Sumarna korekcija mora imati tačnu potvrdu.");
+    Assert((await controller.CancelSummary(order.Id, new(DateTimeOffset.UtcNow, "Test", [], "wrong"), default) as Microsoft.AspNetCore.Mvc.ObjectResult)?.StatusCode == 400, "Poništenje mora imati tačnu potvrdu.");
+    Assert((await service.GetAsync(order.Id, default))!.Status == Summa.Fiscal.Domain.Invoices.FiscalStatus.ReadyForFiscalization, "Odbijene operacije su promijenile izvor.");
+    Console.WriteLine("ORDER/sumarne rute provjeravaju firmu, posebne dozvole, idempotency i eksplicitne potvrde.");
+}
 
 static DefaultHttpContext Context(
     string clientId,
