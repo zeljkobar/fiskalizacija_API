@@ -241,6 +241,7 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<FiscalRequestJournal>();
 app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseAuthentication();
+app.UseMiddleware<PlatformFiscalReadMiddleware>();
 app.UseAuthorization();
 app.MapHealthChecks("/health");
 app.MapControllers();

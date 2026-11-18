@@ -34,6 +34,25 @@ Za **nove rute** i nove audit filtere: validan registrovani klijent preko `X-Fis
 - Redovni detalj računa ne smije zaobići `exchanges:read`: osnovni bezbjedan razlog i vrijeme ostaju vidljivi sa `invoices:read`; ID razmjene, Correlation ID pokušaja i link ka istoriji vidljivi su tek sa obje dozvole. Ne izlagati audit kroz ove odgovore.
 - Identitet se čuva strukturisano: `clientId` iz autentifikacije, `initiatorId`/opciono ime iz postojećih `X-Fiscal-Actor-Id`/`X-Fiscal-Actor-Name` samo za registrovani backend iz izričite liste povjerljivih klijenata, i `executor` (npr. fiskalni motor ili recovery). UI backend provjerava sesiju i sam postavlja zaglavlja; iz browsera ih ne prosljeđuje. Ograničiti dužinu, ukloniti kontrolne znakove; delegirani identitet je audit podatak, ne dozvola za pristup. Neautentifikovani zahtjev nema klijenta ni korisnika.
 
+### Globalni fiskalni pregled bez prava upisa
+
+`platform:fiscal-read` daje opseg svih sadašnjih i budućih firmi samo za odobrene GET preglede: lista, detalj/status/QR računa, izvještaj i njegov detalj, fiskalne razmjene i pripisani API dnevnik. Konkretna dozvola je i dalje obavezna. Ne otvara stari audit, konfiguraciju, sertifikate, ključeve ni sigurnosni dnevnik. Svaki drugi zahtjev ovog klijenta je odbijen prije izvršavanja akcije.
+
+Globalni čitač mora imati prazne `companyIds` i najmanje jednu od `invoices:read`, `reports:read`, `exchanges:read` i `requests:read`. API odbija kombinovanje s drugim pravima, uključujući upis ili `platform:admin`. Samo platformski administrator (ili postojeći bootstrap pristup za kontrolisanu inicijalizaciju/oporavak) može izdati platformski ključ.
+
+Primjer tijela `POST /api/v1/admin/api-clients` za listu i detalj računa u `knjigovodstvoonline`:
+
+```json
+{
+  "name": "Knjigovodstvo Online - globalni fiskalni pregled",
+  "permissions": ["platform:fiscal-read", "invoices:read"],
+  "companyIds": [],
+  "expiresAt": null
+}
+```
+
+Potrebno je izdati nov ključ i držati ga samo na backendu sajta, iza provjere uloge `admin`, odvojeno od postojećeg ključa za fiskalizaciju. Sajt koristi `FISCAL_API_READ_CLIENT_ID` i `FISCAL_API_READ_KEY`; nema fallback-a na postojeći ključ ako čitač nije konfigurisan. Ovo ne traži migraciju baze ni ponavljanje P1 popune istorije.
+
 ## 2. Zajednički format
 
 Nastaviti `{success,data,error,correlationId}`, zaglavlje `X-Correlation-Id` i camelCase. Greška: `{code,message,details:[{code,field,message}]}`. Statusi: `400` neispravan filter/raspon, `401` nema važećeg ključa, `403` nema dozvole ili eksplicitno traži tuđu firmu, `404` nedostupan pojedinačni resurs, `503` indeks ili log nisu dostupni. Prazan rezultat je `200` sa praznim nizom; nedostatak istorije označiti, ne predstavljati kao uspjeh ili kompletan prazan period. Za osjetljive preglede `Cache-Control: no-store`.

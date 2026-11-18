@@ -12,6 +12,7 @@ public static class FiscalApiPermissions
     public const string RequestsSecurityRead = "requests:security:read";
     public const string ClientsAdmin = "clients:admin";
     public const string PlatformAdmin = "platform:admin";
+    public const string PlatformFiscalRead = "platform:fiscal-read";
     public const string CompaniesRead = "companies:read";
     public const string CompaniesWrite = "companies:write";
     public const string ConfigurationRead = "configuration:read";
@@ -26,11 +27,20 @@ public static class FiscalApiPermissions
     public const string ActivationProduction = "activation:production";
 
     public static readonly IReadOnlySet<string> Allowed = new HashSet<string>(
-        [InvoicesCreate, InvoicesRead, InvoicesFiscalize, InvoicesStorno, ReportsRead, ExchangesRead, RequestsRead, RequestsSecurityRead, ClientsAdmin, PlatformAdmin,
+        [InvoicesCreate, InvoicesRead, InvoicesFiscalize, InvoicesStorno, ReportsRead, ExchangesRead, RequestsRead, RequestsSecurityRead, ClientsAdmin, PlatformAdmin, PlatformFiscalRead,
          CompaniesRead, CompaniesWrite, ConfigurationRead, ConfigurationWrite,
          CertificatesRead, CertificatesManage, AuditRead, AlertsRead, AlertsManage,
          ActivationRead, ActivationTest, ActivationProduction],
         StringComparer.Ordinal);
+
+    public static bool IsPlatformFiscalReadOperation(string permission) =>
+        permission is InvoicesRead or ReportsRead or ExchangesRead or RequestsRead;
+
+    public static bool IsValidPlatformFiscalReader(IReadOnlyCollection<string> permissions, int companyCount) =>
+        companyCount == 0 &&
+        permissions.Contains(PlatformFiscalRead, StringComparer.Ordinal) &&
+        permissions.Any(IsPlatformFiscalReadOperation) &&
+        permissions.All(x => x == PlatformFiscalRead || IsPlatformFiscalReadOperation(x));
 }
 
 public sealed record AuthenticatedApiClient(

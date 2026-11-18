@@ -12,6 +12,9 @@ public sealed class FiscalAccessAuthorizer : IFiscalAccessAuthorizer
 {
     public bool HasAccess(ClaimsPrincipal principal, string permission, Guid companyId)
     {
+        if (AdminReadAccess.IsPlatformFiscalReader(principal))
+            return permission == FiscalApiPermissions.InvoicesRead && AdminReadAccess.HasPermission(principal, permission);
+
         var permissions = principal.FindAll(ApiKeyAuthenticationHandler.PermissionClaim)
             .Select(x => x.Value)
             .ToHashSet(StringComparer.Ordinal);

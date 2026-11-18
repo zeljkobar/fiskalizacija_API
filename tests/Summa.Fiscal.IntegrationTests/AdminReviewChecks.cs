@@ -1,5 +1,9 @@
 using System.Security.Claims;
+using System.Reflection;
 using System.Text.Json;
+using System.Net;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
@@ -7,10 +11,12 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Summa.Fiscal.Api;
 using Summa.Fiscal.Api.Contracts;
+using Summa.Fiscal.Api.Controllers;
 using Summa.Fiscal.Api.Middleware;
 using Summa.Fiscal.Api.Security;
 using Summa.Fiscal.Application.Abstractions;
@@ -23,6 +29,68 @@ using Summa.Fiscal.Persistence.Repositories;
 
 internal static class AdminReviewChecks
 {
+    private static ClaimsPrincipal Principal(string client, IEnumerable<string> permissions, params Guid[] companies) =>
+        new(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, client) }
+            .Concat(permissions.Select(x => new Claim(ApiKeyAuthenticationHandler.PermissionClaim, x)))
+            .Concat(companies.Select(x => new Claim(ApiKeyAuthenticationHandler.CompanyClaim, x.ToString()))),
+            ApiKeyAuthenticationHandler.SchemeName));
+
+    public static async Task PlatformReaderAsync()
+    {
+        var tenant = Guid.NewGuid();
+        var reader = Principal("global-reader", [FiscalApiPermissions.PlatformFiscalRead, FiscalApiPermissions.InvoicesRead]);
+        var fiscal = new FiscalAccessAuthorizer();
+        Check(fiscal.HasAccess(reader, FiscalApiPermissions.InvoicesRead, tenant) &&
+            !fiscal.HasAccess(reader, FiscalApiPermissions.InvoicesCreate, tenant) &&
+            !fiscal.HasAccess(reader, FiscalApiPermissions.InvoicesFiscalize, tenant) &&
+            !fiscal.HasAccess(reader, FiscalApiPermissions.InvoicesStorno, tenant), "Globalni čitač je dobio fiskalne upise.");
+        Check(AdminReadAccess.Require(reader, tenant, FiscalApiPermissions.InvoicesRead).IsPlatform &&
+            !AdminReadAccess.HasPermission(reader, FiscalApiPermissions.ExchangesRead), "Opseg firmi nije posebna dozvola.");
+        try
+        {
+            AdminReadAccess.Require(reader, null, FiscalApiPermissions.RequestsRead, FiscalApiPermissions.RequestsSecurityRead, FiscalApiPermissions.PlatformAdmin);
+            throw new InvalidOperationException("Globalni čitač ima pristup sigurnosnom dnevniku.");
+        }
+        catch (FiscalInvoiceOperationException e) when (e.StatusCode == 403) { }
+
+        var context = new DefaultHttpContext { User = reader };
+        var bootstrap = new BootstrapAdminAuthorizer(Options.Create(new ApiAccessOptions { BootstrapAdminKey = "test-bootstrap" }));
+        context.Request.Headers[BootstrapAdminAuthorizer.HeaderName] = "test-bootstrap";
+        Check(!bootstrap.Authorize(context, FiscalApiPermissions.ClientsAdmin).IsAllowed,
+            "Globalni čitač ne smije ući u stare administrativne rute.");
+        var forwarded = 0;
+        var guard = new PlatformFiscalReadMiddleware(_ => { forwarded++; return Task.CompletedTask; });
+        var methods = new[]
+        {
+            (typeof(AdminFiscalReadController), nameof(AdminFiscalReadController.Invoices), true),
+            (typeof(FiscalInvoicesController), nameof(FiscalInvoicesController.GetStatus), true),
+            (typeof(ApiClientsController), nameof(ApiClientsController.List), false),
+            (typeof(FiscalInvoicesController), nameof(FiscalInvoicesController.GetStorno), false)
+        };
+        foreach (var (type, name, allowed) in methods)
+        {
+            var metadata = new EndpointMetadataCollection(type.GetMethod(name)!.GetCustomAttributes().Cast<object>().ToArray());
+            context.SetEndpoint(new Endpoint(null, metadata, name));
+            foreach (var method in new[] { HttpMethods.Get, HttpMethods.Post, HttpMethods.Put, HttpMethods.Delete })
+            {
+                context.Request.Method = method;
+                var shouldPass = allowed && HttpMethods.IsGet(method);
+                var before = forwarded;
+                try { await guard.InvokeAsync(context); }
+                catch (FiscalInvoiceOperationException e) when (!shouldPass && e.Code == "PLATFORM_FISCAL_READ_ONLY") { continue; }
+                Check(shouldPass && forwarded == before + 1, "Neodobrena ruta ili metod prošli su zaštitu.");
+            }
+        }
+        context.User = Principal("existing-writer", [FiscalApiPermissions.InvoicesFiscalize], tenant);
+        context.SetEndpoint(null);
+        context.Request.Method = HttpMethods.Post;
+        var beforeLegacy = forwarded;
+        await guard.InvokeAsync(context);
+        Check(forwarded == beforeLegacy + 1 && fiscal.HasAccess(context.User, FiscalApiPermissions.InvoicesFiscalize, tenant),
+            "Postojeći klijent za fiskalizaciju nije smio promijeniti ponašanje.");
+        Console.WriteLine("Globalni čitač: opt-in GET rute, bez upisa i sigurnosnog dnevnika; postojeći klijent nepromijenjen.");
+    }
+
     public static async Task RequestJournalAsync()
     {
         const string secret = "must-not-be-stored";
@@ -102,11 +170,6 @@ internal static class AdminReviewChecks
 
     public static void AuthorizationAndCalendar()
     {
-        ClaimsPrincipal Principal(string client, string[] permissions, params Guid[] companies) => new(new ClaimsIdentity(
-            new[] { new Claim(ClaimTypes.NameIdentifier, client) }
-                .Concat(permissions.Select(x => new Claim(ApiKeyAuthenticationHandler.PermissionClaim, x)))
-                .Concat(companies.Select(x => new Claim(ApiKeyAuthenticationHandler.CompanyClaim, x.ToString()))),
-            ApiKeyAuthenticationHandler.SchemeName));
         var own = Guid.NewGuid(); var other = Guid.NewGuid();
         var tenant = Principal("api-test", [FiscalApiPermissions.ReportsRead], own);
         Check(AdminReadAccess.Require(tenant, null, FiscalApiPermissions.ReportsRead).Allows(own), "Nije uzet tenant claim.");
@@ -157,6 +220,7 @@ internal static class AdminReviewChecks
         var listed = await reader.InvoicesAsync(scope, new() { PageSize = 1, BuyerName = "a%b", PaymentType = Summa.Fiscal.Domain.Invoices.PaymentType.BankAccount }, ct);
         Check(listed.TotalCount == 6 && listed.Items.Count == 1, "Tenant/stranica/literalni procenat.");
         Check(await reader.InvoiceDetailAsync(scope, foreign.Id, false, ct) is null, "Tuđi detalj vidljiv.");
+        await PlatformRegistryAsync(db, options, reader, company.Id, another.Id, foreign.Id);
         var reportFilter = new ReportFilter { CompanyId = company.Id, Environment = FiscalEnvironment.Test, GroupBy = ReportGrouping.Month,
             FromDate = new(2026, 10, 1), ToDate = new(2026, 12, 1), PageSize = 1 };
         var report = await reader.TurnoverAsync(scope, reportFilter, ct);
@@ -218,6 +282,88 @@ internal static class AdminReviewChecks
             db.FiscalInvoices.Add(doc);
             return doc;
         }
+    }
+
+    private static async Task PlatformRegistryAsync(SummaFiscalDbContext db, DbContextOptions<SummaFiscalDbContext> options,
+        IAdminReadStore reader, Guid own, Guid another, Guid foreignInvoice)
+    {
+        var ct = CancellationToken.None;
+        var registry = new PostgreSqlApiClientRegistry(db);
+        var request = new CreateApiClientRequest("Knjigovodstvo Online — globalni pregled",
+            [FiscalApiPermissions.PlatformFiscalRead, FiscalApiPermissions.InvoicesRead], [], null);
+        var bootstrap = new BootstrapAdminAuthorizer(Options.Create(new ApiAccessOptions()));
+        var context = new DefaultHttpContext { User = Principal("scoped-client-manager", [FiscalApiPermissions.ClientsAdmin], own) };
+        var controller = new ApiClientsController(registry, bootstrap) { ControllerContext = new() { HttpContext = context } };
+        Check(await controller.Create(request, ct) is ObjectResult { StatusCode: 403 },
+            "Menadžer klijenata jedne firme ne smije izdati globalni ključ.");
+        Check(await controller.Create(request with { Permissions = [FiscalApiPermissions.PlatformAdmin] }, ct) is ObjectResult { StatusCode: 403 },
+            "Menadžer klijenata jedne firme ne smije izdati platformski admin ključ radi zaobilaženja zaštite.");
+        context.User = Principal("platform-admin", [FiscalApiPermissions.PlatformAdmin]);
+        var created = (await controller.Create(request, ct) as CreatedAtActionResult)?.Value as ApiResponse<CreatedApiClient>;
+        var access = created?.Data ?? throw new InvalidOperationException("Platformski administrator ne može izdati čitača.");
+        var client = await registry.AuthenticateAsync(access.Client.ClientId, access.ApiKey, ct)
+            ?? throw new InvalidOperationException("Globalni ključ se ne može autentifikovati.");
+        var scope = AdminReadAccess.Require(Principal(client.ClientId, client.Permissions, client.CompanyIds.ToArray()), null, FiscalApiPermissions.InvoicesRead);
+        var all = await reader.InvoicesAsync(scope, new() { PageSize = 200 }, ct);
+        Check(client.CompanyIds.Count == 0 && all.Items.Any(x => x.CompanyId == own) && all.Items.Any(x => x.CompanyId == another) &&
+            (await reader.InvoiceDetailAsync(scope, foreignInvoice, false, ct))?.Invoice.CompanyId == another, "Globalna lista ili detalj nijesu obuhvatili obje firme.");
+
+        await PlatformReaderHttpAsync(options, access, own, another, foreignInvoice);
+
+        foreach (var invalid in new[]
+        {
+            request with { Permissions = [FiscalApiPermissions.PlatformFiscalRead] },
+            request with { Permissions = [..request.Permissions!, FiscalApiPermissions.PlatformAdmin] },
+            request with { Permissions = [..request.Permissions!, FiscalApiPermissions.InvoicesFiscalize] },
+            request with { Permissions = [..request.Permissions!, FiscalApiPermissions.RequestsSecurityRead] },
+            request with { CompanyIds = [own] }
+        })
+            Check(await controller.Create(invalid, ct) is ObjectResult { StatusCode: 400 }, "Neispravna kombinacija globalnog čitanja je prihvaćena.");
+
+        var record = await db.ApiClients.SingleAsync(x => x.Id == client.Id, ct);
+        record.Permissions += "," + FiscalApiPermissions.InvoicesStorno;
+        await db.SaveChangesAsync(ct);
+        Check(await registry.AuthenticateAsync(access.Client.ClientId, access.ApiKey, ct) is null,
+            "Neispravan postojeći zapis globalnog čitača nije odbijen.");
+    }
+
+    private static async Task PlatformReaderHttpAsync(DbContextOptions<SummaFiscalDbContext> dbOptions,
+        CreatedApiClient created, Guid own, Guid another, Guid foreignInvoice)
+    {
+        var builder = WebApplication.CreateBuilder([]);
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddControllers().AddApplicationPart(typeof(AdminFiscalReadController).Assembly);
+        builder.Services.AddAuthentication(ApiKeyAuthenticationHandler.SchemeName)
+            .AddScheme<ApiAccessOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationHandler.SchemeName, _ => { });
+        builder.Services.AddAuthorization();
+        builder.Services.AddScoped(_ => new SummaFiscalDbContext(dbOptions));
+        builder.Services.AddScoped<IApiClientRegistry, PostgreSqlApiClientRegistry>();
+        builder.Services.AddScoped<IAdminReadStore, PostgreSqlAdminReadStore>();
+        builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+        await using var app = builder.Build();
+        app.UseMiddleware<ApiExceptionMiddleware>();
+        app.UseAuthentication();
+        app.UseMiddleware<PlatformFiscalReadMiddleware>();
+        app.UseAuthorization();
+        app.MapControllers();
+        await app.StartAsync();
+
+        using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+        http.DefaultRequestHeaders.Add(ApiKeyAuthenticationHandler.ClientIdHeader, created.Client.ClientId);
+        http.DefaultRequestHeaders.Add(ApiKeyAuthenticationHandler.ApiKeyHeader, created.ApiKey);
+        using var list = await http.GetAsync("/api/v1/admin/invoices?pageSize=200");
+        Check(list.StatusCode == HttpStatusCode.OK && list.Headers.CacheControl?.NoStore == true, "HTTP lista globalnog čitača nije dostupna ili se kešira.");
+        using var content = JsonDocument.Parse(await list.Content.ReadAsStringAsync());
+        var companies = content.RootElement.GetProperty("data").GetProperty("items").EnumerateArray()
+            .Select(x => x.GetProperty("companyId").GetGuid()).ToHashSet();
+        Check(companies.Contains(own) && companies.Contains(another), "HTTP globalna lista ne vraća obje firme.");
+        using var clients = await http.GetAsync("/api/v1/admin/api-clients");
+        using var security = await http.GetAsync("/api/v1/admin/api-requests?scope=security");
+        using var storno = await http.PostAsync($"/api/v1/fiscal/invoices/{foreignInvoice}/storno", null);
+        Check(clients.StatusCode == HttpStatusCode.Forbidden && security.StatusCode == HttpStatusCode.Forbidden &&
+            storno.StatusCode == HttpStatusCode.Forbidden, "Globalni ključ je prošao nedozvoljenu HTTP rutu.");
+        Console.WriteLine("Globalni čitač HTTP: obje firme vidljive; API ključevi, sigurnosni dnevnik i storno odbijeni.");
     }
 
     private static async Task BackfillAsync(TestFactory factory, string database, FiscalInvoiceRecord invoice,

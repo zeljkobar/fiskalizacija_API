@@ -97,6 +97,7 @@ public sealed class FiscalInvoicesController(
     }
 
     [HttpGet("{id:guid}")]
+    [AllowPlatformFiscalReader]
     [ProducesResponseType(typeof(ApiResponse<FiscalInvoiceResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(Guid id, CancellationToken cancellationToken)
@@ -119,6 +120,7 @@ public sealed class FiscalInvoicesController(
     }
 
     [HttpGet("{id:guid}/status")]
+    [AllowPlatformFiscalReader]
     [ProducesResponseType(typeof(ApiResponse<FiscalInvoiceStatusResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetStatus(Guid id, CancellationToken cancellationToken)
@@ -199,6 +201,7 @@ public sealed class FiscalInvoicesController(
     }
 
     [HttpGet("{id:guid}/qr")]
+    [AllowPlatformFiscalReader]
     [ProducesResponseType(typeof(ApiResponse<FiscalInvoiceQrResult>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]

@@ -27,6 +27,11 @@ public sealed class PostgreSqlApiClientRegistry(SummaFiscalDbContext dbContext)
             return null;
         }
 
+        var permissions = ParsePermissions(record.Permissions).ToHashSet(StringComparer.Ordinal);
+        if (permissions.Contains(FiscalApiPermissions.PlatformFiscalRead) &&
+            !FiscalApiPermissions.IsValidPlatformFiscalReader(permissions, record.CompanyAccesses.Count))
+            return null;
+
         record.LastUsedAt = DateTimeOffset.UtcNow;
         record.UpdatedAt = record.LastUsedAt.Value;
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -35,7 +40,7 @@ public sealed class PostgreSqlApiClientRegistry(SummaFiscalDbContext dbContext)
             record.Id,
             record.ClientId,
             record.Name,
-            ParsePermissions(record.Permissions).ToHashSet(StringComparer.Ordinal),
+            permissions,
             record.CompanyAccesses.Select(x => x.CompanyId).ToHashSet());
     }
 
@@ -146,7 +151,10 @@ public sealed class PostgreSqlApiClientRegistry(SummaFiscalDbContext dbContext)
             throw new ArgumentException("Naziv aplikacije je obavezan i može imati najviše 200 znakova.");
         if (permissions.Count == 0 || permissions.Any(x => !FiscalApiPermissions.Allowed.Contains(x)))
             throw new ArgumentException("Dozvole aplikacije nijesu ispravne.");
-        var isPlatformClient = permissions.Contains(FiscalApiPermissions.PlatformAdmin, StringComparer.Ordinal) ||
+        var isPlatformReader = permissions.Contains(FiscalApiPermissions.PlatformFiscalRead, StringComparer.Ordinal);
+        if (isPlatformReader && !FiscalApiPermissions.IsValidPlatformFiscalReader(permissions, companyIds.Count))
+            throw new ArgumentException("Globalni fiskalni čitač mora imati dozvolu za najmanje jedan odobreni pregled, bez drugih prava i bez pojedinačne dodjele firmi.");
+        var isPlatformClient = isPlatformReader || permissions.Contains(FiscalApiPermissions.PlatformAdmin, StringComparer.Ordinal) ||
             permissions.Contains(FiscalApiPermissions.ClientsAdmin, StringComparer.Ordinal);
         if ((!isPlatformClient && companyIds.Count == 0) || companyIds.Any(x => x == Guid.Empty))
             throw new ArgumentException("Aplikacija mora imati pristup najmanje jednoj firmi, osim platformskog administratora.");

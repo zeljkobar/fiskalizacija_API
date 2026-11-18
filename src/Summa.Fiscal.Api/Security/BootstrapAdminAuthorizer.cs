@@ -27,6 +27,9 @@ public sealed class BootstrapAdminAuthorizer(IOptions<ApiAccessOptions> options)
 
     public AdminAccessDecision Authorize(HttpContext context, string permission, Guid? companyId = null)
     {
+        if (AdminReadAccess.IsPlatformFiscalReader(context.User))
+            return new(false, true, false, false, string.Empty, new HashSet<Guid>());
+
         var request = context.Request;
         var expected = options.Value.BootstrapAdminKey;
         var supplied = request.Headers[HeaderName].FirstOrDefault();

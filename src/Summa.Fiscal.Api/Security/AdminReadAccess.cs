@@ -14,10 +14,16 @@ public static class AdminReadAccess
             !string.IsNullOrWhiteSpace(id) && id != "development-client" ? id : null;
     }
 
-    public static bool HasPermission(ClaimsPrincipal user, string permission) =>
-        RegisteredClient(user) != null && user.HasClaim(ApiKeyAuthenticationHandler.PermissionClaim, permission);
+    public static bool IsPlatformFiscalReader(ClaimsPrincipal user) =>
+        RegisteredClient(user) != null &&
+        user.HasClaim(ApiKeyAuthenticationHandler.PermissionClaim, FiscalApiPermissions.PlatformFiscalRead);
 
-    public static CompanyScope Scope(ClaimsPrincipal user) => new(HasPermission(user, FiscalApiPermissions.PlatformAdmin),
+    public static bool HasPermission(ClaimsPrincipal user, string permission) =>
+        RegisteredClient(user) != null && user.HasClaim(ApiKeyAuthenticationHandler.PermissionClaim, permission) &&
+        (!IsPlatformFiscalReader(user) || FiscalApiPermissions.IsPlatformFiscalReadOperation(permission));
+
+    public static CompanyScope Scope(ClaimsPrincipal user) => new(
+        HasPermission(user, FiscalApiPermissions.PlatformAdmin) || IsPlatformFiscalReader(user),
         RegisteredClient(user) == null ? [] : user.FindAll(ApiKeyAuthenticationHandler.CompanyClaim)
             .Select(x => Guid.TryParse(x.Value, out var id) ? id : Guid.Empty).Where(x => x != Guid.Empty).Distinct().ToArray());
 

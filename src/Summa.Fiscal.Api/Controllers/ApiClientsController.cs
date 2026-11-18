@@ -30,6 +30,9 @@ public sealed class ApiClientsController(
         CancellationToken cancellationToken)
     {
         var access = Access();
+        if (!access.HasPlatformAccess && request.Permissions?.Any(permission =>
+            permission is FiscalApiPermissions.PlatformAdmin or FiscalApiPermissions.PlatformFiscalRead) == true)
+            return DeniedResponse(access);
         if (!access.IsAllowed) return DeniedResponse(access);
         try
         {

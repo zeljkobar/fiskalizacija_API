@@ -17,6 +17,7 @@ public sealed class AdminFiscalReadController(IServiceProvider services) : Contr
         throw new FiscalInvoiceOperationException("ADMIN_INDEX_UNAVAILABLE", "Administratorski indeks nije dostupan.", 503);
 
     [HttpGet("invoices")]
+    [AllowPlatformFiscalReader]
     public async Task<IActionResult> Invoices([FromQuery] InvoiceFilter f, CancellationToken ct)
     {
         var scope = AdminReadAccess.Require(User, f.CompanyId, FiscalApiPermissions.InvoicesRead);
@@ -24,18 +25,21 @@ public sealed class AdminFiscalReadController(IServiceProvider services) : Contr
         return Result(await Store.InvoicesAsync(scope, f, ct));
     }
     [HttpGet("reports/turnover")]
+    [AllowPlatformFiscalReader]
     public async Task<IActionResult> Turnover([FromQuery] ReportFilter f, CancellationToken ct)
     {
         var scope = AdminReadAccess.Require(User, f.CompanyId, FiscalApiPermissions.ReportsRead);
         return Result(await Store.TurnoverAsync(scope, f, ct));
     }
     [HttpGet("reports/turnover/documents")]
+    [AllowPlatformFiscalReader]
     public async Task<IActionResult> TurnoverDocuments([FromQuery] ReportFilter f, CancellationToken ct)
     {
         var scope = AdminReadAccess.Require(User, f.CompanyId, FiscalApiPermissions.ReportsRead, FiscalApiPermissions.InvoicesRead);
         return Result(await Store.ReportDocumentsAsync(scope, f, ct));
     }
     [HttpGet("exchanges")]
+    [AllowPlatformFiscalReader]
     public async Task<IActionResult> Exchanges([FromQuery] ExchangeFilter f, CancellationToken ct)
     {
         var scope = AdminReadAccess.Require(User, f.CompanyId, FiscalApiPermissions.ExchangesRead);
@@ -43,12 +47,14 @@ public sealed class AdminFiscalReadController(IServiceProvider services) : Contr
         return Result(await Store.ExchangesAsync(scope, f, ct));
     }
     [HttpGet("exchanges/{exchangeId:guid}")]
+    [AllowPlatformFiscalReader]
     public async Task<IActionResult> Exchange(Guid exchangeId, CancellationToken ct)
     {
         var scope = AdminReadAccess.Require(User, null, FiscalApiPermissions.ExchangesRead);
         return Result(await Store.ExchangeAsync(scope, exchangeId, ct) ?? throw Missing());
     }
     [HttpGet("invoices/{invoiceId:guid}/exchanges")]
+    [AllowPlatformFiscalReader]
     public async Task<IActionResult> InvoiceExchanges(Guid invoiceId, [FromQuery] ExchangeFilter f, CancellationToken ct)
     {
         var scope = AdminReadAccess.Require(User, null, FiscalApiPermissions.ExchangesRead, FiscalApiPermissions.InvoicesRead);
@@ -61,6 +67,7 @@ public sealed class AdminFiscalReadController(IServiceProvider services) : Contr
         return Result(await Store.ExchangesAsync(scope, f, ct));
     }
     [HttpGet("api-requests")]
+    [AllowPlatformFiscalReader]
     public async Task<IActionResult> Requests([FromQuery] RequestFilter f, CancellationToken ct)
     {
         var scope = f.Scope == RequestScope.Security

@@ -8,7 +8,9 @@
 
 Dodati su pretraga i detalji računa, promet i PDV sa listom dokumenata koji ulaze u zbir, istorija pokušaja prema PU, operativni dnevnik API zahtjeva i precizniji audit filteri. Pregledi su izolovani po firmi i zaštićeni posebnim dozvolama. Odgovor PU i ishod lokalnog čuvanja prikazani su odvojeno; XML arhiva ostaje izvor dokaza.
 
-Migracija i postupak provjere i popune istorije opisani su u [`ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md`](ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md), a ugovor za povezivanje sajta je u [`ADMIN_PREGLEDI_API_UGOVOR.md`](ADMIN_PREGLEDI_API_UGOVOR.md). Produkcioni deploy, migracija, popuna istorije i dodjela prava nijesu izvršeni. P2 i korisnički ekrani nijesu dio ove isporuke.
+Migracija i postupak provjere i popune istorije opisani su u [`ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md`](ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md), a ugovor za povezivanje sajta je u [`ADMIN_PREGLEDI_API_UGOVOR.md`](ADMIN_PREGLEDI_API_UGOVOR.md). P1 je postavljen na produkciju na commitu `eb23437`; 18.11.2026. primijenjena je popuna 16 istorijskih razmjena, pa je kontrolni prolaz vratio nula novih ili dopunjenih zapisa.
+
+Odvojeni globalni pristup `platform:fiscal-read` i admin lista u `knjigovodstvoonline` su lokalna dopuna. Čitač ima samo dozvoljene GET rute i konkretne dozvole pregleda; stari ključ, konfiguracija firmi i fiskalni workflow nijesu izmijenjeni. P2 ostaje van ove dopune.
 
 Lokalni build, provjere ugovora i integracioni testovi na privremenoj PostgreSQL bazi su prošli. EF model nema nepripremljenih promjena. Integracioni testovi uključuju izolaciju firmi, granice lokalnog perioda, zbir i izvore prometa, evidentiranje API grešaka te ponovljiv uvoz istorijskih dokaza. Opciona provjera sa razvojnim PFX-om nije izvršena jer nije konfigurisan.
 
@@ -149,7 +151,7 @@ Javna provjera `https://fiscal.summasummarum.me/health` vraća `Healthy`. Počet
 
 ## Sljedeći korak
 
-Za P1: proba migracije, popune istorije i izvještaja na izolovanoj kopiji produkcionog backupa od 18.11.2026. je završena. Ostaju odvojeno odobreni produkcioni rollout i provjere prije puštanja, prema [uputstvu za lokalnu isporuku](ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md).
+Za globalni fiskalni pregled: zasebno odobriti objavu dopune na API-ju i sajtu. Izdati poseban serverski ključ za čitanje i provjeriti pristup iz admin sesije. P1 popunu istorije nije potrebno ponoviti.
 
 Za lokalnu dopunu od 22.10.2026: pregledati promjene i primijeniti avansnu migraciju uz kontrolisani deployment, zatim povezati korisničke ekrane sa ugovorom u `ADVANCE_INVOICES.md`. Live PU testovi i produkcioni računi nijesu izvršeni ovim korakom. Sljedeći pasus opisuje raniji plan sajta.
 

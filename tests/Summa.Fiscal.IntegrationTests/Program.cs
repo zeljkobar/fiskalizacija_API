@@ -64,6 +64,7 @@ Console.WriteLine("Granularna administratorska autorizacija i tenant izolacija s
 await VerifyAdvanceEndpointPermissionsAsync();
 await VerifyOrderSummaryEndpointPermissionsAsync();
 AdminReviewChecks.AuthorizationAndCalendar();
+await AdminReviewChecks.PlatformReaderAsync();
 await AdminReviewChecks.RequestJournalAsync();
 await AdvancePostgreSqlChecks.RunAsync();
 
