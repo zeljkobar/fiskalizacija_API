@@ -1,6 +1,7 @@
 using Summa.Fiscal.Api.Contracts;
 using Summa.Fiscal.Application.Invoices;
 using Summa.Fiscal.Application.Onboarding;
+using Summa.Fiscal.Application.Admin;
 
 namespace Summa.Fiscal.Api.Middleware;
 
@@ -36,6 +37,9 @@ public sealed class ApiExceptionMiddleware(
         catch (Exception exception)
         {
             var correlationId = GetCorrelationId(context);
+            if (exception is HttpRequestException or TimeoutException ||
+                exception is OperationCanceledException && !context.RequestAborted.IsCancellationRequested)
+                context.Items[FiscalRequestJournal.OutcomeKey] = RequestOutcome.TransportError;
             logger.LogError(
                 exception,
                 "Neočekivana API greška. CorrelationId: {CorrelationId}",
@@ -74,6 +78,7 @@ public sealed class ApiExceptionMiddleware(
 
     private static async Task WriteAsync<T>(HttpContext context, int statusCode, T payload)
     {
+        if (payload is IApiResponse { Error: { } error }) context.Items[FiscalRequestJournal.ErrorKey] = error.Code;
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/json";
         await context.Response.WriteAsJsonAsync(payload);

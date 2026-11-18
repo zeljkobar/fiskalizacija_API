@@ -9,7 +9,7 @@ public static class FiscalPersistenceServiceCollectionExtensions
         this IServiceCollection services,
         string connectionString)
     {
-        services.AddDbContext<SummaFiscalDbContext>(
+        services.AddDbContextFactory<SummaFiscalDbContext>(
             options => options.UseNpgsql(connectionString));
 
         return services;

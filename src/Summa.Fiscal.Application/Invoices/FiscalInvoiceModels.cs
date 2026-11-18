@@ -167,7 +167,7 @@ public sealed record FiscalInvoiceResult(
     Guid? AdvanceRestorationStornoInvoiceId = null,
     string? AdvanceRestorationStornoIic = null,
     OrderSummaryData? OrderSummary = null,
-    bool IsInformational = false)
+    bool IsInformational = false) : InvoiceDiagnosticFields
 {
     public decimal AdvanceAppliedAmount => Payments.Where(x => x.PaymentType == PaymentType.Advance).Sum(x => x.Amount);
     public decimal AmountToPayAfterAdvance => TotalGrossAmount - AdvanceAppliedAmount;
@@ -181,7 +181,7 @@ public sealed record FiscalInvoiceStatusResult(
     FiscalStatus Status,
     string? Iic,
     string? Jikr,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt) : InvoiceDiagnosticFields;
 
 public sealed class FiscalInvoiceOperationException(
     string code,

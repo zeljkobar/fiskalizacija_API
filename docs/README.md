@@ -11,6 +11,9 @@ Ovaj direktorijum sadrži operativnu, integracionu i izvornu dokumentaciju za Su
 
 ## Administracija i sigurnost
 
+- [ADMIN_PREGLEDI_API_UGOVOR.md](ADMIN_PREGLEDI_API_UGOVOR.md) — ugovor za listu računa, izvještaje, razmjene, audit i dnevnik API zahtjeva.
+- [ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md](ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md) — konfiguracija, migracija i alat za popunu istorije.
+
 - [`COMPANY_ONBOARDING_AND_CERTIFICATES.md`](COMPANY_ONBOARDING_AND_CERTIFICATES.md) — onboarding, vault, sertifikati, readiness i aktivacija.
 - [`WEBSITE_FISCAL_ADMINISTRATION_SPEC.md`](WEBSITE_FISCAL_ADMINISTRATION_SPEC.md) — ugovor za administratorski dio sajta.
 - [`MULTI_APP_TENANT_SECURITY.md`](MULTI_APP_TENANT_SECURITY.md) — API klijenti, dozvole i tenant izolacija.

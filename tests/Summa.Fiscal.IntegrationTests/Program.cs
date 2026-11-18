@@ -63,6 +63,8 @@ Assert(authorizer.Authorize(bootstrap, FiscalApiPermissions.ClientsAdmin).IsBoot
 Console.WriteLine("Granularna administratorska autorizacija i tenant izolacija su provjerene.");
 await VerifyAdvanceEndpointPermissionsAsync();
 await VerifyOrderSummaryEndpointPermissionsAsync();
+AdminReviewChecks.AuthorizationAndCalendar();
+await AdminReviewChecks.RequestJournalAsync();
 await AdvancePostgreSqlChecks.RunAsync();
 
 static async Task VerifyAdvanceEndpointPermissionsAsync()

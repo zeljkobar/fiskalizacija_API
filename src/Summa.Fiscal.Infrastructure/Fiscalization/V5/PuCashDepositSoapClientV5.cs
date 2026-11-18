@@ -79,11 +79,12 @@ public sealed class PuCashDepositSoapClientV5(
                 responseParser.Parse(responseXml),
                 responseXml);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception)
         {
             await exchangeStore.SaveFailureAsync(
                 exchangeId,
-                exception,
+                exception is OperationCanceledException && !cancellationToken.IsCancellationRequested
+                    ? new TimeoutException("Istek čekanja na PU.", exception) : exception,
                 CancellationToken.None);
             throw;
         }

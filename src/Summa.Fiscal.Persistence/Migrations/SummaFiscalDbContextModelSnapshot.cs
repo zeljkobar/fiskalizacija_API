@@ -23,6 +23,23 @@ namespace Summa.Fiscal.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.AdminWorkflowDebt", b =>
+                {
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.ToTable((string)null);
+
+                    b.ToView("admin_workflow_debts", "fiscal");
+                });
+
             modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.ApiClientCompanyAccessRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -374,6 +391,74 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.ToTable("fiscal_advance_usages", "fiscal");
                 });
 
+            modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.FiscalApiRequestRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ApiHttpStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ClientId")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("DurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("InitiatorId")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("InvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RouteTemplate")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("Security")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CorrelationId", "Id");
+
+                    b.HasIndex("InvoiceId", "CreatedAt");
+
+                    b.HasIndex("CompanyId", "CreatedAt", "Id");
+
+                    b.HasIndex("Security", "CreatedAt", "Id");
+
+                    b.ToTable("fiscal_api_requests", "fiscal");
+                });
+
             modelBuilder.Entity("Summa.Fiscal.Persistence.Entities.FiscalAuditRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -390,6 +475,9 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("ClientId")
+                        .HasColumnType("text");
+
                     b.Property<Guid?>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -405,6 +493,18 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("Executor")
+                        .HasColumnType("text");
+
+                    b.Property<string>("InitiatorId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("InitiatorName")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("InvoiceId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -413,6 +513,10 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.HasIndex("CompanyId");
 
                     b.HasIndex("CorrelationId");
+
+                    b.HasIndex("CompanyId", "CorrelationId", "CreatedAt");
+
+                    b.HasIndex("CompanyId", "InvoiceId", "CreatedAt");
 
                     b.ToTable("fiscal_audit_logs", "fiscal");
                 });
@@ -597,6 +701,9 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ContextJson")
+                        .HasColumnType("jsonb");
+
                     b.Property<string>("CorrelationId")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -610,6 +717,15 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("Environment")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EnvironmentSource")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EvidenceState")
+                        .HasColumnType("text");
+
                     b.Property<string>("FaultCode")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -618,16 +734,31 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<string>("FiscalIdentifier")
+                        .HasColumnType("text");
+
                     b.Property<int?>("HttpStatusCode")
                         .HasColumnType("integer");
 
                     b.Property<Guid?>("InvoiceId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("LocalCompletion")
+                        .HasColumnType("text");
+
                     b.Property<string>("Operation")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Outcome")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProfileFingerprint")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Provenance")
+                        .HasColumnType("text");
 
                     b.Property<string>("RequestSha256")
                         .IsRequired()
@@ -638,6 +769,9 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("RequestUuid")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("ResponseSha256")
                         .HasMaxLength(64)
@@ -660,6 +794,12 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.HasIndex("CorrelationId");
 
                     b.HasIndex("InvoiceId");
+
+                    b.HasIndex("CorrelationId", "Id");
+
+                    b.HasIndex("InvoiceId", "CreatedAt", "Id");
+
+                    b.HasIndex("CompanyId", "Environment", "CreatedAt", "Id");
 
                     b.ToTable("fiscal_exchanges", "fiscal");
                 });
@@ -745,6 +885,12 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AdminEnvironment")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AdminEnvironmentSource")
+                        .HasColumnType("text");
+
                     b.Property<string>("AdvanceRestorationStornoIic")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
@@ -822,6 +968,9 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.Property<Guid>("DeviceId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("FirstSendContextJson")
+                        .HasColumnType("jsonb");
+
                     b.Property<DateTimeOffset?>("FiscalizedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -891,6 +1040,9 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.Property<DateOnly?>("PaymentDeadline")
                         .HasColumnType("date");
 
+                    b.Property<string>("PreparationContextJson")
+                        .HasColumnType("jsonb");
+
                     b.Property<string>("QrCodeData")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
@@ -950,12 +1102,20 @@ namespace Summa.Fiscal.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"OriginalInvoiceId\" IS NOT NULL AND \"AdvanceSettlementFinalInvoiceId\" IS NULL AND NOT \"IsOrderCorrection\" AND NOT \"IsSummaryCorrection\" AND \"Status\" <> 'Cancelled'");
 
+                    b.HasIndex("CompanyId", "BuyerIdentificationNumber");
+
                     b.HasIndex("CompanyId", "IdempotencyKey")
                         .IsUnique();
+
+                    b.HasIndex("CompanyId", "InvoiceNumber");
 
                     b.HasIndex("OriginalInvoiceId", "AdvanceSettlementFinalInvoiceId")
                         .IsUnique()
                         .HasFilter("\"AdvanceSettlementFinalInvoiceId\" IS NOT NULL AND \"Status\" <> 'Cancelled'");
+
+                    b.HasIndex("CompanyId", "IssueDateTime", "Id");
+
+                    b.HasIndex("CompanyId", "AdminEnvironment", "IssueDateTime", "Id");
 
                     b.ToTable("fiscal_invoices", "fiscal");
                 });
@@ -1046,6 +1206,8 @@ namespace Summa.Fiscal.Persistence.Migrations
                     b.HasIndex("AdvanceInvoiceId");
 
                     b.HasIndex("InvoiceId");
+
+                    b.HasIndex("PaymentType", "InvoiceId");
 
                     b.ToTable("fiscal_payments", "fiscal");
                 });

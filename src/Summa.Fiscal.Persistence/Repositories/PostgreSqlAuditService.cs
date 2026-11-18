@@ -4,12 +4,17 @@ using Summa.Fiscal.Persistence.Entities;
 
 namespace Summa.Fiscal.Persistence.Repositories;
 
-public sealed class PostgreSqlAuditService(SummaFiscalDbContext dbContext) : IAuditService
+public sealed class PostgreSqlAuditService(SummaFiscalDbContext dbContext, IFiscalAuditIdentity? identity = null) : IAuditService
 {
     public async Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken)
     {
         dbContext.FiscalAudits.Add(new FiscalAuditRecord
         {
+            InvoiceId = entry.InvoiceId,
+            ClientId = identity?.ClientId,
+            InitiatorId = identity?.InitiatorId,
+            InitiatorName = identity?.InitiatorName,
+            Executor = entry.Actor,
             CompanyId = entry.CompanyId,
             Action = entry.Action,
             CorrelationId = entry.CorrelationId,

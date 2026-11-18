@@ -24,11 +24,18 @@ public sealed class SummaFiscalDbContext(DbContextOptions<SummaFiscalDbContext> 
     public DbSet<FiscalSummaryOrderRecord> FiscalSummaryOrders => Set<FiscalSummaryOrderRecord>();
     public DbSet<CashDepositRecord> CashDeposits => Set<CashDepositRecord>();
     public DbSet<FiscalExchangeRecord> FiscalExchanges => Set<FiscalExchangeRecord>();
+    public DbSet<FiscalApiRequestRecord> FiscalApiRequests => Set<FiscalApiRequestRecord>();
+    public DbSet<AdminWorkflowDebt> AdminWorkflowDebts => Set<AdminWorkflowDebt>();
     public DbSet<InvoiceSequenceRecord> InvoiceSequences => Set<InvoiceSequenceRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("fiscal");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(SummaFiscalDbContext).Assembly);
+        modelBuilder.Entity<AdminWorkflowDebt>().HasNoKey().ToView("admin_workflow_debts");
+        modelBuilder.HasDbFunction(typeof(SummaFiscalDbContext).GetMethod(nameof(LocalTime))!)
+            .HasName("timezone").IsBuiltIn().HasStoreType("timestamp without time zone");
     }
+
+    public static DateTime LocalTime(string zone, DateTimeOffset time) => throw new NotSupportedException();
 }

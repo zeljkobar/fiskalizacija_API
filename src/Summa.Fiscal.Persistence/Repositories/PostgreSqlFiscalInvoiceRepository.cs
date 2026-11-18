@@ -3,13 +3,14 @@ using Npgsql;
 using System.Data;
 using System.Text.Json;
 using Summa.Fiscal.Application.Abstractions;
+using Summa.Fiscal.Application.Admin;
 using Summa.Fiscal.Application.Invoices;
 using Summa.Fiscal.Domain.Invoices;
 using Summa.Fiscal.Persistence.Entities;
 
 namespace Summa.Fiscal.Persistence.Repositories;
 
-public sealed partial class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbContext)
+public sealed partial class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbContext dbContext, IFiscalAuditIdentity? auditIdentity = null)
     : IFiscalInvoiceRepository
 {
     public async Task<FiscalInvoice?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
@@ -119,6 +120,20 @@ public sealed partial class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbConte
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
             IsolationLevel.ReadCommitted,
             cancellationToken);
+        var preparation = await (from unit in dbContext.BusinessUnits
+                                 join device in dbContext.FiscalDevices on unit.Id equals device.BusinessUnitId
+                                 join op in dbContext.FiscalOperators on unit.CompanyId equals op.CompanyId
+                                 where unit.Id == invoice.BusinessUnitId && unit.CompanyId == invoice.CompanyId &&
+                                       device.Id == invoice.DeviceId && op.Id == invoice.OperatorId && op.Environment == unit.Environment
+                                 select new { unit.Environment, unit.Code, unit.Company.Tin, device.TcrCode, op.OperatorCode })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (preparation is not null && preparation.Environment is "Test" or "Production")
+        {
+            record.AdminEnvironment = preparation.Environment;
+            record.AdminEnvironmentSource = "PreparationSnapshot";
+            record.PreparationContextJson = JsonSerializer.Serialize(new FiscalContextSnapshot(preparation.Environment,
+                preparation.Tin, preparation.Code, preparation.TcrCode ?? "", preparation.OperatorCode, null));
+        }
         await PrepareOrderSummaryAsync(invoice, auditEntry, cancellationToken);
         var restorationSettlement = invoice.IsAdvanceRestoration && invoice.OriginalInvoiceId.HasValue
             ? await GetByIdAsync(invoice.OriginalInvoiceId.Value, cancellationToken) : null;
@@ -246,6 +261,11 @@ public sealed partial class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbConte
         if (entry is null) return;
         dbContext.FiscalAudits.Add(new()
         {
+            InvoiceId = entry.InvoiceId,
+            ClientId = auditIdentity?.ClientId,
+            InitiatorId = auditIdentity?.InitiatorId,
+            InitiatorName = auditIdentity?.InitiatorName,
+            Executor = entry.Actor,
             CompanyId = entry.CompanyId, Action = entry.Action,
             CorrelationId = entry.CorrelationId, Actor = entry.Actor,
             CreatedAt = entry.OccurredAt.ToUniversalTime(), UpdatedAt = entry.OccurredAt.ToUniversalTime(),
@@ -290,6 +310,8 @@ public sealed partial class PostgreSqlFiscalInvoiceRepository(SummaFiscalDbConte
         if (invoice.Status == FiscalStatus.FiscalizationPending && record.Status is not ("ReadyForFiscalization" or "FiscalizationFailed"))
             throw new FiscalInvoiceOperationException("INVOICE_STATE_CONFLICT", "Račun je već preuzet za slanje ili otkazan.");
 
+        if (invoice.Status == FiscalStatus.FiscalizationPending && record.AdminEnvironmentSource == "PreparationSnapshot")
+        { record.AdminEnvironment = null; record.AdminEnvironmentSource = null; }
         ApplyMutable(record, invoice);
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

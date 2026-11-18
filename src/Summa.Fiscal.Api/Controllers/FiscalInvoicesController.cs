@@ -9,6 +9,7 @@ using Summa.Fiscal.Api.Security;
 using Summa.Fiscal.Domain.Invoices;
 using Summa.Fiscal.Infrastructure.Fiscalization.V5;
 using Summa.Fiscal.Application.Onboarding;
+using Summa.Fiscal.Application.Admin;
 
 namespace Summa.Fiscal.Api.Controllers;
 
@@ -113,6 +114,7 @@ public sealed class FiscalInvoicesController(
             return ForbiddenResponse(correlationId);
         }
 
+        await AttachDiagnosticsAsync(result, result.Id, result.CompanyId, full: true, cancellationToken);
         return Ok(ApiResponse<FiscalInvoiceResult>.Ok(result, correlationId));
     }
 
@@ -134,6 +136,7 @@ public sealed class FiscalInvoicesController(
             return ForbiddenResponse(correlationId);
         }
 
+        await AttachDiagnosticsAsync(result, result.Id, result.CompanyId, full: false, cancellationToken);
         return Ok(ApiResponse<FiscalInvoiceStatusResult>.Ok(result, correlationId));
     }
 
@@ -442,6 +445,16 @@ public sealed class FiscalInvoicesController(
     private string GetCorrelationId() =>
         HttpContext.Items[CorrelationIdMiddleware.ItemName]?.ToString()
         ?? HttpContext.TraceIdentifier;
+
+    private async Task AttachDiagnosticsAsync(InvoiceDiagnosticFields target, Guid id, Guid companyId, bool full, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        if (HttpContext.RequestServices?.GetService<IAdminReadStore>() is not { } store) return;
+        var allowed = AdminReadAccess.HasPermission(User, FiscalApiPermissions.ExchangesRead) &&
+                      AdminReadAccess.HasPermission(User, FiscalApiPermissions.InvoicesRead);
+        var detail = await store.InvoiceDetailAsync(new(false, [companyId]), id, allowed, ct);
+        if (detail is not null) target.AttachDiagnostics(detail, allowed, full);
+    }
 
     private string Actor()
     {

@@ -1,6 +1,7 @@
 using System.Security.Cryptography.X509Certificates;
 using static Summa.Fiscal.Infrastructure.Fiscalization.V5.FiscalInvoiceRequestFactoryV5;
 using Summa.Fiscal.Application.Abstractions;
+using Summa.Fiscal.Application.Admin;
 using Summa.Fiscal.Application.Invoices;
 using Summa.Fiscal.Application.Onboarding;
 using Summa.Fiscal.Domain.Invoices;
@@ -241,26 +242,35 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             endpoint,
             signed.SignedDocument,
             correlationId,
+            new ExchangeContext(invoice.CompanyId, invoice.Id, new(configuration.Environment, configuration.IssuerTin,
+                configuration.BusinessUnitCode, configuration.TcrCode, configuration.OperatorCode, configuration.SoftwareCode,
+                ExchangeEvidenceReader.Hash(string.Join('|', configuration.Environment, configuration.IssuerTin,
+                    configuration.BusinessUnitCode, configuration.TcrCode, configuration.OperatorCode, configuration.SoftwareCode)))),
             cancellationToken);
         var fiscalizationSucceeded =
             transport.Response.IsSuccess &&
             !string.IsNullOrWhiteSpace(transport.Response.Fic);
 
-        if (fiscalizationSucceeded)
+        try
         {
-            var qrCodeData = GenerateQrCodeData(
-                invoice,
-                configuration,
-                issueDateTime,
-                ordinalNumber);
-            invoice.MarkFiscalized(transport.Response.Fic!, officialInvoiceNumber, qrCodeData);
-            await PersistSuccessfulInvoiceAsync(invoice, correlationId, "fiscalization-engine", cancellationToken);
+            if (fiscalizationSucceeded)
+            {
+                var qrCodeData = GenerateQrCodeData(invoice, configuration, issueDateTime, ordinalNumber);
+                invoice.MarkFiscalized(transport.Response.Fic!, officialInvoiceNumber, qrCodeData);
+                await PersistSuccessfulInvoiceAsync(invoice, correlationId, "fiscalization-engine", cancellationToken);
+            }
+            else
+            {
+                invoice.MarkFiscalizationFailed();
+                await repository.UpdateAsync(invoice, cancellationToken);
+            }
         }
-        else
+        catch
         {
-            invoice.MarkFiscalizationFailed();
-            await repository.UpdateAsync(invoice, cancellationToken);
+            await exchangeStore.MarkLocalCompletionAsync(transport.ExchangeId, LocalCompletion.Failed);
+            throw;
         }
+        await exchangeStore.MarkLocalCompletionAsync(transport.ExchangeId, LocalCompletion.Completed);
         await auditService.RecordAsync(
             new(
                 fiscalizationSucceeded ? "FISCAL_INVOICE_FISCALIZED" : "FISCAL_INVOICE_REJECTED",
@@ -388,6 +398,7 @@ public sealed class FiscalInvoiceSubmissionServiceV5(
             response.SendDateTime ?? evidence.ReceivedAt);
 
         await PersistSuccessfulInvoiceAsync(invoice, correlationId, actor, cancellationToken);
+        await exchangeStore.MarkLocalCompletionAsync(exchangeId, LocalCompletion.Completed);
 
         await auditService.RecordAsync(
             new(

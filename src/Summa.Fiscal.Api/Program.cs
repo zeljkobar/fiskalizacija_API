@@ -8,6 +8,7 @@ using Summa.Fiscal.Api.Contracts;
 using Summa.Fiscal.Api.Middleware;
 using Summa.Fiscal.Api.Security;
 using Summa.Fiscal.Application.Abstractions;
+using Summa.Fiscal.Application.Admin;
 using Summa.Fiscal.Application.Invoices;
 using Summa.Fiscal.Application.Onboarding;
 using Summa.Fiscal.Application.Certificates;
@@ -18,14 +19,16 @@ using Summa.Fiscal.Infrastructure.Fiscalization.V5;
 using Summa.Fiscal.Infrastructure.Persistence;
 using Summa.Fiscal.Persistence;
 using Summa.Fiscal.Persistence.Repositories;
+using Summa.Fiscal.Api;
 
-var builder = WebApplication.CreateBuilder(args);
+var isBackfill = args.FirstOrDefault() == "admin-exchange-backfill";
+var builder = WebApplication.CreateBuilder(isBackfill ? [] : args);
 
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
 builder.Services
-    .AddControllers()
+    .AddControllers(options => options.Filters.Add<FiscalRequestResultFilter>())
     .AddJsonOptions(options =>
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
@@ -42,6 +45,7 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
                 new ApiErrorDetail(
                     "INVALID_REQUEST_VALUE",
                     entry.Key,
+                    context.HttpContext.Request.Path.StartsWithSegments("/api/v1/admin") && HttpMethods.IsGet(context.HttpContext.Request.Method) ||
                     string.IsNullOrWhiteSpace(error.ErrorMessage)
                         ? "Vrijednost nije ispravna."
                         : error.ErrorMessage)))
@@ -76,6 +80,10 @@ if (usePostgreSql)
     builder.Services.AddScoped<IFiscalActivationRepository, PostgreSqlFiscalActivationRepository>();
     builder.Services.AddScoped<IAuditService, PostgreSqlAuditService>();
     builder.Services.AddScoped<IInvoiceNumberSequence, PostgreSqlInvoiceNumberSequence>();
+    if (builder.Configuration.GetValue("AdminDiagnostics:ReadEnabled", true))
+        builder.Services.AddScoped<IAdminReadStore, PostgreSqlAdminReadStore>();
+    builder.Services.AddSingleton<IAdminDiagnosticWriter, PostgreSqlAdminDiagnosticWriter>();
+    builder.Services.AddHostedService<FiscalRequestJournalMaintenance>();
 }
 else
 {
@@ -92,6 +100,9 @@ builder.Services
         ApiKeyAuthenticationHandler.SchemeName,
         options => builder.Configuration.GetSection(ApiAccessOptions.SectionName).Bind(options));
 builder.Services.AddAuthorization();
+builder.Services.AddHttpContextAccessor();
+builder.Services.Configure<AdminDiagnosticsOptions>(builder.Configuration.GetSection("AdminDiagnostics"));
+builder.Services.AddSingleton<IFiscalAuditIdentity, HttpFiscalAuditIdentity>();
 builder.Services.AddSingleton<IBootstrapAdminAuthorizer, BootstrapAdminAuthorizer>();
 builder.Services.AddSingleton<IFiscalAccessAuthorizer, FiscalAccessAuthorizer>();
 builder.Services.Configure<PuFiscalizationOptionsV5>(
@@ -133,7 +144,11 @@ builder.Services.AddSingleton<IFiscalExchangeStoreV5>(serviceProvider =>
     var options = serviceProvider
         .GetRequiredService<Microsoft.Extensions.Options.IOptions<FiscalExchangeStorageOptionsV5>>()
         .Value;
-    return new FileFiscalExchangeStoreV5(options);
+    var files = new FileFiscalExchangeStoreV5(options);
+    var writer = serviceProvider.GetService<IAdminDiagnosticWriter>();
+    return writer == null || !builder.Configuration.GetValue("AdminDiagnostics:IndexExchanges", true) ? files :
+        new IndexedFiscalExchangeStoreV5(files, writer, serviceProvider.GetRequiredService<TimeProvider>(),
+            serviceProvider.GetRequiredService<ILogger<IndexedFiscalExchangeStoreV5>>());
 });
 builder.Services.AddHttpClient<IPuFiscalSoapClientV5, PuFiscalSoapClientV5>(client =>
 {
@@ -190,6 +205,23 @@ builder.Services.AddHttpClient<IPuCashDepositSoapClientV5, PuCashDepositSoapClie
 
 var app = builder.Build();
 
+if (isBackfill)
+{
+    if (args.Length < 3 || args[1] is not ("--dry-run" or "--apply"))
+        throw new ArgumentException("Upotreba: admin-exchange-backfill --dry-run|--apply <arhiva> [--expected-database <ime>] [--after <id>].");
+    string? Value(string option)
+    {
+        var i = Array.IndexOf(args, option, 3);
+        return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+    }
+    var importer = new AdminExchangeBackfill(app.Services.GetRequiredService<IDbContextFactory<SummaFiscalDbContext>>());
+    var result = await importer.RunAsync(args[2], args[1] == "--apply", Value("--expected-database"), Value("--after"),
+        checkpoint => Console.WriteLine($"checkpoint:{checkpoint}"), CancellationToken.None);
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result));
+    await app.DisposeAsync();
+    return;
+}
+
 if (usePostgreSql && builder.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 {
     await using var scope = app.Services.CreateAsyncScope();
@@ -206,6 +238,7 @@ if (usePostgreSql && app.Environment.IsDevelopment())
 
 app.UseForwardedHeaders();
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<FiscalRequestJournal>();
 app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();

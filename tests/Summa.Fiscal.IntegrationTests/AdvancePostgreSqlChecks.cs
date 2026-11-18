@@ -153,6 +153,7 @@ internal static class AdvancePostgreSqlChecks
             "Storno i korišćenje avansa su oba prihvaćena.");
         await AdvanceFinalStornoPostgreSqlChecks.RunAsync(options, companyId, unitId, deviceId, operatorId);
         await OrderSummaryPostgreSqlChecks.RunAsync(options, companyId, unitId, deviceId, operatorId);
+        await AdminReviewChecks.PostgreSqlAsync(options);
     }
 
     private static void Assert(bool condition, string message)

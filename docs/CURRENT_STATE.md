@@ -2,7 +2,15 @@
 
 ## Datum presjeka
 
-22.10.2026. (lokalni razvoj); prethodni produkcioni presjek ostaje istorijski potvrđeno stanje.
+18.11.2026. (lokalni razvoj); prethodni produkcioni presjek ostaje istorijski potvrđeno stanje.
+
+## Lokalna dopuna — P1 administratorski pregledi
+
+Dodati su pretraga i detalji računa, promet i PDV sa listom dokumenata koji ulaze u zbir, istorija pokušaja prema PU, operativni dnevnik API zahtjeva i precizniji audit filteri. Pregledi su izolovani po firmi i zaštićeni posebnim dozvolama. Odgovor PU i ishod lokalnog čuvanja prikazani su odvojeno; XML arhiva ostaje izvor dokaza.
+
+Migracija i postupak provjere i popune istorije opisani su u [`ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md`](ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md), a ugovor za povezivanje sajta je u [`ADMIN_PREGLEDI_API_UGOVOR.md`](ADMIN_PREGLEDI_API_UGOVOR.md). Produkcioni deploy, migracija, popuna istorije i dodjela prava nijesu izvršeni. P2 i korisnički ekrani nijesu dio ove isporuke.
+
+Lokalni build, provjere ugovora i integracioni testovi na privremenoj PostgreSQL bazi su prošli. EF model nema nepripremljenih promjena. Integracioni testovi uključuju izolaciju firmi, granice lokalnog perioda, zbir i izvore prometa, evidentiranje API grešaka te ponovljiv uvoz istorijskih dokaza. Opciona provjera sa razvojnim PFX-om nije izvršena jer nije konfigurisan.
 
 ## Lokalna dopuna — ORDER i sumarni računi
 
@@ -140,6 +148,8 @@ Produkcijski deployment je izvršen 02.08.2026. na Ubuntu 24.04 serveru: postoje
 Javna provjera `https://fiscal.summasummarum.me/health` vraća `Healthy`. Početna ruta `/` trenutno očekivano vraća `404` jer je na domenu objavljen backend API, a ne korisnički web interfejs. Domen se kasnije može koristiti i kao ulaz u klijentski softver, ali tek nakon implementacije prijave korisnika, tenant izolacije, prava pristupa, korisničkog portala i eksplicitne potvrde prije fiskalizacije. API ključ sistemske integracije nije zamjena za korisničku prijavu.
 
 ## Sljedeći korak
+
+Za P1: proba migracije, popune istorije i izvještaja na izolovanoj kopiji produkcionog backupa od 18.11.2026. je završena. Ostaju odvojeno odobreni produkcioni rollout i provjere prije puštanja, prema [uputstvu za lokalnu isporuku](ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md).
 
 Za lokalnu dopunu od 22.10.2026: pregledati promjene i primijeniti avansnu migraciju uz kontrolisani deployment, zatim povezati korisničke ekrane sa ugovorom u `ADVANCE_INVOICES.md`. Live PU testovi i produkcioni računi nijesu izvršeni ovim korakom. Sljedeći pasus opisuje raniji plan sajta.
 

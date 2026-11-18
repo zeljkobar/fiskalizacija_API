@@ -45,6 +45,10 @@ Status je ažuriran 22.10.2026. Lokalne dopune za avanse i ORDER/sumarne račune
 
 ## Faza 1A — Administracija i produkciona aktivacija
 
+- [x] P1 proba migracije, ponovljive popune istorije i izvještaja na izolovanoj kopiji produkcionog backupa. Vidjeti [rezultate](ADMIN_PREGLEDI_LOKALNA_ISPORUKA.md).
+- [ ] Kontrolisani produkcioni rollout P1: inventar, svjež backup, migracija, popuna istorije i dodjela novih dozvola. Vidjeti [API ugovor](ADMIN_PREGLEDI_API_UGOVOR.md).
+- [ ] P2: generisani OpenAPI i katalog ruta; povezivanje Next.js ekrana nakon potvrde P1 isporuke.
+
 - [x] Administracija firmi, poslovnih jedinica, ENU uređaja i operatera.
 - [x] Šifrovani certificate vault i upravljanje sertifikatima.
 - [x] API klijenti, granularne dozvole i tenant izolacija.

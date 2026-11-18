@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Xml.Linq;
+using Summa.Fiscal.Application.Admin;
 
 namespace Summa.Fiscal.Infrastructure.Fiscalization.V5;
 
@@ -58,12 +59,15 @@ public sealed record RegisterTcrTransportResultV5(Guid ExchangeId, HttpStatusCod
 public sealed class PuTcrSoapClientV5(HttpClient httpClient, ISoapEnvelopeV5 envelope,
     IRegisterTcrResponseParserV5 parser, IFiscalExchangeStoreV5 exchangeStore)
 {
-    public async Task<RegisterTcrTransportResultV5> RegisterAsync(Uri endpoint, XDocument signedRequest, string correlationId, CancellationToken ct)
+    public Task<RegisterTcrTransportResultV5> RegisterAsync(Uri endpoint, XDocument signedRequest, string correlationId, CancellationToken ct) =>
+        RegisterAsync(endpoint, signedRequest, correlationId, null, ct);
+
+    public async Task<RegisterTcrTransportResultV5> RegisterAsync(Uri endpoint, XDocument signedRequest, string correlationId, ExchangeContext? context, CancellationToken ct)
     {
         var soapXml = envelope.Wrap(signedRequest).ToString(SaveOptions.DisableFormatting);
         var uuidText = signedRequest.Root?.Element(PuFiscalContractV5.Schema + "Header")?.Attribute("UUID")?.Value;
         Guid? uuid = Guid.TryParse(uuidText, out var parsed) ? parsed : null;
-        var exchangeId = await exchangeStore.SaveRequestAsync(soapXml, uuid, correlationId, endpoint, PuFiscalContractV5.RegisterTcrSoapAction, ct);
+        var exchangeId = await exchangeStore.SaveRequestWithContextAsync(soapXml, uuid, correlationId, endpoint, PuFiscalContractV5.RegisterTcrSoapAction, context, ct);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Headers.Add("SOAPAction", $"\"{PuFiscalContractV5.RegisterTcrSoapAction}\"");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/xml"));
@@ -75,9 +79,10 @@ public sealed class PuTcrSoapClientV5(HttpClient httpClient, ISoapEnvelopeV5 env
             await exchangeStore.SaveResponseAsync(exchangeId, xml, (int)response.StatusCode, ct);
             return new(exchangeId, response.StatusCode, parser.Parse(xml));
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
-            await exchangeStore.SaveFailureAsync(exchangeId, ex, CancellationToken.None); throw;
+            await exchangeStore.SaveFailureAsync(exchangeId, ex is OperationCanceledException && !ct.IsCancellationRequested
+                ? new TimeoutException("Istek čekanja na PU.", ex) : ex, CancellationToken.None); throw;
         }
     }
 }

@@ -32,6 +32,13 @@ public interface IAuditService
     Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken);
 }
 
+public interface IFiscalAuditIdentity
+{
+    string? ClientId { get; }
+    string? InitiatorId { get; }
+    string? InitiatorName { get; }
+}
+
 public sealed record PuFiscalResponse(bool IsSuccess, string? Jikr, string? ErrorCode, string? ErrorMessage);
 
 public sealed record AuditEntry(

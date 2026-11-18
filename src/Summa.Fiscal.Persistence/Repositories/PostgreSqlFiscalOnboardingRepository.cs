@@ -399,7 +399,8 @@ public sealed class PostgreSqlFiscalOnboardingRepository(SummaFiscalDbContext db
         var total = await query.CountAsync(cancellationToken);
         var records = await query.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
             .Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(cancellationToken);
-        return new(records.Select(x => new FiscalAuditSummary(x.Id, x.CompanyId, x.Action, x.CorrelationId, x.Actor, x.DataJson, x.CreatedAt)).ToArray(), page, pageSize, total);
+        return new(records.Select(x => new FiscalAuditSummary(x.Id, x.CompanyId, x.Action, x.CorrelationId, x.Actor, x.DataJson, x.CreatedAt)
+        { InvoiceId = x.InvoiceId, ClientId = x.ClientId, InitiatorId = x.InitiatorId, InitiatorName = x.InitiatorName, Executor = x.Executor }).ToArray(), page, pageSize, total);
     }
 
     private async Task RequireCompanyAsync(Guid companyId, CancellationToken cancellationToken)

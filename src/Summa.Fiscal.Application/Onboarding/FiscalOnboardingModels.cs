@@ -127,7 +127,14 @@ public sealed record FiscalAuditSummary(
     string CorrelationId,
     string Actor,
     string DataJson,
-    DateTimeOffset OccurredAt);
+    DateTimeOffset OccurredAt)
+{
+    public Guid? InvoiceId { get; init; }
+    public string? ClientId { get; init; }
+    public string? InitiatorId { get; init; }
+    public string? InitiatorName { get; init; }
+    public string? Executor { get; init; }
+}
 
 public sealed record PagedResult<T>(
     IReadOnlyCollection<T> Items,

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Xml.Linq;
+using Summa.Fiscal.Application.Admin;
 
 namespace Summa.Fiscal.Infrastructure.Fiscalization.V5;
 
@@ -30,7 +31,10 @@ public sealed class PuFiscalSoapClientV5(
         Uri endpoint,
         XDocument signedRequest,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) => await RegisterInvoiceAsync(endpoint, signedRequest, correlationId, null, cancellationToken);
+
+    public async Task<PuFiscalTransportResultV5> RegisterInvoiceAsync(
+        Uri endpoint, XDocument signedRequest, string correlationId, ExchangeContext? context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(signedRequest);
@@ -43,12 +47,13 @@ public sealed class PuFiscalSoapClientV5(
         var soapEnvelope = envelope.Wrap(signedRequest);
         var soapXml = soapEnvelope.ToString(SaveOptions.DisableFormatting);
         var requestUuid = TryReadRequestUuid(signedRequest);
-        var exchangeId = await exchangeStore.SaveRequestAsync(
+        var exchangeId = await exchangeStore.SaveRequestWithContextAsync(
             soapXml,
             requestUuid,
             correlationId,
             endpoint,
             PuFiscalContractV5.RegisterInvoiceSoapAction,
+            context,
             cancellationToken);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
@@ -77,11 +82,12 @@ public sealed class PuFiscalSoapClientV5(
 
             return new(exchangeId, response.StatusCode, parsed, responseXml);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception)
         {
             await exchangeStore.SaveFailureAsync(
                 exchangeId,
-                exception,
+                exception is OperationCanceledException && !cancellationToken.IsCancellationRequested
+                    ? new TimeoutException("Istek čekanja na PU.", exception) : exception,
                 CancellationToken.None);
             throw;
         }

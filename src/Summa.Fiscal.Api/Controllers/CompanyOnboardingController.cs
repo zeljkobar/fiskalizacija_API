@@ -7,6 +7,8 @@ using Summa.Fiscal.Application.Onboarding;
 using Summa.Fiscal.Application.Certificates;
 using Summa.Fiscal.Application.Activation;
 using Summa.Fiscal.Application.Abstractions;
+using Summa.Fiscal.Application.Admin;
+using Summa.Fiscal.Application.Invoices;
 
 namespace Summa.Fiscal.Api.Controllers;
 
@@ -386,9 +388,21 @@ public sealed class CompanyOnboardingController(
         [FromQuery] string? actor = null,
         [FromQuery] DateTimeOffset? from = null,
         [FromQuery] DateTimeOffset? to = null,
+        [FromQuery] string? correlationId = null,
+        [FromQuery] Guid? invoiceId = null,
         CancellationToken cancellationToken = default)
     {
         if (!Authorized()) return UnauthorizedResponse();
+        if (correlationId != null || invoiceId != null)
+        {
+            var scope = AdminReadAccess.Require(User, companyId, FiscalApiPermissions.AuditRead);
+            var readers = HttpContext.RequestServices.GetService<IAdminReadStore>() ??
+                throw new FiscalInvoiceOperationException("ADMIN_INDEX_UNAVAILABLE", "Administratorski indeks nije dostupan.", 503);
+            Response.Headers.CacheControl = "no-store";
+            var filtered = await readers.AuditAsync(scope, companyId, new() { Page = page, PageSize = pageSize, From = from, To = to },
+                action, actor, correlationId, invoiceId, cancellationToken);
+            return Ok(ApiResponse<AdminPage<FiscalAuditSummary>>.Ok(filtered, CorrelationId()));
+        }
         var result = await service.ListAuditAsync(companyId, page, pageSize, action, actor, from, to, cancellationToken);
         return Ok(ApiResponse<PagedResult<FiscalAuditSummary>>.Ok(result, CorrelationId()));
     }

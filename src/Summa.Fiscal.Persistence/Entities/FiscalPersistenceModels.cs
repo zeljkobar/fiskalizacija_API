@@ -145,6 +145,11 @@ public sealed class FiscalCertificateAlertRecord : FiscalRecord
 
 public sealed class FiscalAuditRecord : FiscalRecord
 {
+    public Guid? InvoiceId { get; set; }
+    public string? ClientId { get; set; }
+    public string? InitiatorId { get; set; }
+    public string? InitiatorName { get; set; }
+    public string? Executor { get; set; }
     public Guid? CompanyId { get; set; }
     public CompanyRecord? Company { get; set; }
     public string Action { get; set; } = string.Empty;
@@ -155,6 +160,10 @@ public sealed class FiscalAuditRecord : FiscalRecord
 
 public sealed class FiscalInvoiceRecord : FiscalRecord
 {
+    public string? AdminEnvironment { get; set; }
+    public string? AdminEnvironmentSource { get; set; }
+    public string? PreparationContextJson { get; set; }
+    public string? FirstSendContextJson { get; set; }
     public string? OrderSummaryJson { get; set; }
     public bool IsOrderCorrection { get; set; }
     public bool IsSummaryCorrection { get; set; }
@@ -278,6 +287,16 @@ public sealed class CashDepositRecord : FiscalRecord
 
 public sealed class FiscalExchangeRecord : FiscalRecord
 {
+    public Guid? RequestUuid { get; set; }
+    public string? Environment { get; set; }
+    public string? EnvironmentSource { get; set; }
+    public string? Outcome { get; set; }
+    public string? LocalCompletion { get; set; }
+    public string? Provenance { get; set; }
+    public string? EvidenceState { get; set; }
+    public string? ProfileFingerprint { get; set; }
+    public string? FiscalIdentifier { get; set; }
+    public string? ContextJson { get; set; }
     public Guid? CompanyId { get; set; }
     public Guid? InvoiceId { get; set; }
     public Guid? CashDepositId { get; set; }
@@ -293,6 +312,30 @@ public sealed class FiscalExchangeRecord : FiscalRecord
     public string? FaultCode { get; set; }
     public string? FaultMessage { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
+}
+
+public sealed class FiscalApiRequestRecord : FiscalRecord
+{
+    public DateTimeOffset? CompletedAt { get; set; }
+    public long? DurationMs { get; set; }
+    public string Method { get; set; } = "";
+    public string RouteTemplate { get; set; } = "";
+    public int ApiHttpStatus { get; set; }
+    public string Outcome { get; set; } = "";
+    public string? ErrorCode { get; set; }
+    public string? ClientId { get; set; }
+    public string? InitiatorId { get; set; }
+    public Guid? CompanyId { get; set; }
+    public Guid? InvoiceId { get; set; }
+    public string CorrelationId { get; set; } = "";
+    public bool Security { get; set; }
+}
+
+public sealed class AdminWorkflowDebt
+{
+    public Guid InvoiceId { get; set; }
+    public string Kind { get; set; } = "";
+    public decimal Amount { get; set; }
 }
 
 public sealed class InvoiceSequenceRecord : FiscalRecord

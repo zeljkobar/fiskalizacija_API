@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Globalization;
 using System.Xml.Linq;
+using Summa.Fiscal.Application.Admin;
 
 namespace Summa.Fiscal.Infrastructure.Fiscalization.V5;
 
@@ -52,6 +53,9 @@ public sealed record FiscalInvoiceExchangeEvidenceV5(
 
 public interface IFiscalExchangeStoreV5
 {
+    Task<Guid> SaveRequestWithContextAsync(string xml, Guid? uuid, string correlationId, Uri endpoint, string action, ExchangeContext? context, CancellationToken ct) =>
+        SaveRequestAsync(xml, uuid, correlationId, endpoint, action, ct);
+    Task MarkLocalCompletionAsync(Guid id, LocalCompletion state) => Task.CompletedTask;
     Task<Guid> SaveRequestAsync(
         string soapRequestXml,
         Guid? requestUuid,

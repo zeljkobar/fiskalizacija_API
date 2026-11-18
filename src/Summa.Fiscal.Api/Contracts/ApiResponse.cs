@@ -1,10 +1,12 @@
 namespace Summa.Fiscal.Api.Contracts;
 
+public interface IApiResponse { ApiError? Error { get; } }
+
 public sealed record ApiResponse<T>(
     bool Success,
     T? Data,
     ApiError? Error,
-    string CorrelationId)
+    string CorrelationId) : IApiResponse
 {
     public static ApiResponse<T> Ok(T data, string correlationId) =>
         new(true, data, null, correlationId);

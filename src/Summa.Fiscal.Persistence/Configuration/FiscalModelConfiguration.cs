@@ -171,6 +171,8 @@ internal sealed class FiscalAuditConfiguration : FiscalRecordConfiguration<Fisca
     protected override void ConfigureRecord(EntityTypeBuilder<FiscalAuditRecord> b)
     {
         b.ToTable("fiscal_audit_logs");
+        b.HasIndex(x => new { x.CompanyId, x.CorrelationId, x.CreatedAt });
+        b.HasIndex(x => new { x.CompanyId, x.InvoiceId, x.CreatedAt });
         b.Property(x => x.Action).HasMaxLength(100).IsRequired();
         b.Property(x => x.CorrelationId).HasMaxLength(200).IsRequired();
         b.Property(x => x.Actor).HasMaxLength(200).IsRequired();
@@ -201,6 +203,12 @@ internal sealed class FiscalInvoiceConfiguration : FiscalRecordConfiguration<Fis
     protected override void ConfigureRecord(EntityTypeBuilder<FiscalInvoiceRecord> b)
     {
         b.ToTable("fiscal_invoices");
+        b.HasIndex(x => new { x.CompanyId, x.AdminEnvironment, x.IssueDateTime, x.Id });
+        b.HasIndex(x => new { x.CompanyId, x.IssueDateTime, x.Id });
+        b.HasIndex(x => new { x.CompanyId, x.InvoiceNumber });
+        b.HasIndex(x => new { x.CompanyId, x.BuyerIdentificationNumber });
+        b.Property(x => x.PreparationContextJson).HasColumnType("jsonb");
+        b.Property(x => x.FirstSendContextJson).HasColumnType("jsonb");
         b.Property(x => x.OrderSummaryJson).HasColumnType("jsonb");
         b.Property(x => x.InvoiceType).HasMaxLength(30).IsRequired();
         b.Property(x => x.InvoiceNumber).HasMaxLength(100).IsRequired();
@@ -279,6 +287,7 @@ internal sealed class FiscalPaymentConfiguration : FiscalRecordConfiguration<Fis
     protected override void ConfigureRecord(EntityTypeBuilder<FiscalPaymentRecord> b)
     {
         b.ToTable("fiscal_payments");
+        b.HasIndex(x => new { x.PaymentType, x.InvoiceId });
         b.Property(x => x.PaymentType).HasMaxLength(30).IsRequired();
         b.Property(x => x.Amount).HasPrecision(18, 2);
         b.Property(x => x.Reference).HasMaxLength(200);
@@ -339,6 +348,10 @@ internal sealed class FiscalExchangeConfiguration : FiscalRecordConfiguration<Fi
     protected override void ConfigureRecord(EntityTypeBuilder<FiscalExchangeRecord> b)
     {
         b.ToTable("fiscal_exchanges");
+        b.HasIndex(x => new { x.InvoiceId, x.CreatedAt, x.Id });
+        b.HasIndex(x => new { x.CompanyId, x.Environment, x.CreatedAt, x.Id });
+        b.HasIndex(x => new { x.CorrelationId, x.Id });
+        b.Property(x => x.ContextJson).HasColumnType("jsonb");
         b.Property(x => x.Operation).HasMaxLength(100).IsRequired();
         b.Property(x => x.CorrelationId).HasMaxLength(200).IsRequired();
         b.Property(x => x.Endpoint).HasMaxLength(500).IsRequired();
@@ -351,6 +364,18 @@ internal sealed class FiscalExchangeConfiguration : FiscalRecordConfiguration<Fi
         b.Property(x => x.FaultMessage).HasMaxLength(2000);
         b.HasIndex(x => x.CorrelationId);
         b.HasIndex(x => x.InvoiceId);
+    }
+}
+
+internal sealed class FiscalApiRequestConfiguration : FiscalRecordConfiguration<FiscalApiRequestRecord>
+{
+    protected override void ConfigureRecord(EntityTypeBuilder<FiscalApiRequestRecord> b)
+    {
+        b.ToTable("fiscal_api_requests");
+        b.HasIndex(x => new { x.CompanyId, x.CreatedAt, x.Id });
+        b.HasIndex(x => new { x.Security, x.CreatedAt, x.Id });
+        b.HasIndex(x => new { x.CorrelationId, x.Id });
+        b.HasIndex(x => new { x.InvoiceId, x.CreatedAt });
     }
 }
 

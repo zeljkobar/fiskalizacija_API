@@ -1,5 +1,6 @@
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
+using Summa.Fiscal.Application.Admin;
 using Summa.Fiscal.Application.Activation;
 using Summa.Fiscal.Application.Onboarding;
 
@@ -39,6 +40,7 @@ public sealed class FiscalTcrRegistrationServiceV5(
         if (device.RegistrationStatus == "Registered" && !string.IsNullOrWhiteSpace(device.TcrCode))
             return new(device.Id, companyId, device.BusinessUnitId, device.InternalCode, device.TcrCode, device.RegisteredAt!.Value, Guid.Empty);
 
+        Guid exchangeId = Guid.Empty;
         try
         {
             using var signingCertificate = X509CertificateLoader.LoadPkcs12(material.PfxBytes, material.Password,
@@ -54,18 +56,22 @@ public sealed class FiscalTcrRegistrationServiceV5(
             using var handler = new PuClientCertificateHandlerV5(signingCertificate);
             using var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
             var transport = await new PuTcrSoapClientV5(httpClient, envelope, parser, exchangeStore)
-                .RegisterAsync(new Uri(profile.Endpoint), signed.SignedDocument, correlationId, cancellationToken);
+                .RegisterAsync(new Uri(profile.Endpoint), signed.SignedDocument, correlationId,
+                    new(companyId, null, new("Production", company.Tin, profile.BusinessUnit.Code, "", profile.Operator.OperatorCode, profile.SoftwareCode)), cancellationToken);
+            exchangeId = transport.ExchangeId;
             if (!transport.Response.IsSuccess || string.IsNullOrWhiteSpace(transport.Response.TcrCode))
                 throw new FiscalOnboardingException(transport.Response.Fault?.Code ?? "TCR_REGISTRATION_REJECTED",
                     transport.Response.Fault?.Message ?? "PU je odbila registraciju ENU-a.");
             var registeredAt = DateTimeOffset.UtcNow;
             var completed = await repository.CompleteDeviceRegistrationAsync(companyId, device.Id, transport.Response.TcrCode, registeredAt, cancellationToken);
+            await exchangeStore.MarkLocalCompletionAsync(exchangeId, LocalCompletion.Completed);
             await repository.AddAuditAsync(companyId, "PRODUCTION_TCR_REGISTERED", correlationId, actor,
                 JsonSerializer.Serialize(new { completed.Id, completed.InternalCode, completed.TcrCode, command.ValidFrom, transport.ExchangeId }), cancellationToken);
             return new(completed.Id, companyId, completed.BusinessUnitId, completed.InternalCode, completed.TcrCode!, registeredAt, transport.ExchangeId);
         }
         catch
         {
+            await exchangeStore.MarkLocalCompletionAsync(exchangeId, LocalCompletion.Failed);
             await repository.MarkDeviceRegistrationFailedAsync(companyId, device.Id, CancellationToken.None);
             await repository.AddAuditAsync(companyId, "PRODUCTION_TCR_REGISTRATION_FAILED", correlationId, actor,
                 JsonSerializer.Serialize(new { device.Id, device.InternalCode, command.ValidFrom }), CancellationToken.None);
